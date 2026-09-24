@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum UserRole {
+  ADMIN
+  MD
+  EA
+  DEPARTMENT_HOD
+  PROCESS
+  SC_TEAM
+  EMPLOYEE
+}
+
+enum TaskPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TaskStatus {
+  NEW
+  IN_PROGRESS
+  ON_HOLD
+  DELAYED
+  CANCELLED
+  COMPLETED
+}
+
+enum Responsibility {
+  EA
+  EMPLOYEE
+}
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  employees Employee[]
+  tasks     Task[]
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  isActive     Boolean  @default(true)
+
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  employee Employee?
+
+  createdTasks Task[] @relation("TaskCreator")
+  eaTasks      Task[] @relation("TaskEA")
+
+  statusChanges TaskStatusHistory[]
+  createdDelays TaskDelay[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Employee {
+  id            Int     @id @default(autoincrement())
+  employeeCode  String? @unique
+  fullName      String
+  officialEmail String? @unique
+  isActive      Boolean @default(true)
+
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  userId Int?  @unique
+  user   User? @relation(fields: [userId], references: [id])
+
+  assignedTasks Task[] @relation("TaskEmployee")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Task {
+  id          Int          @id @default(autoincrement())
+  title       String
+  description String?      @db.Text
+  priority    TaskPriority
+  status      TaskStatus   @default(NEW)
+
+  responsibility Responsibility @default(EA)
+
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  createdById Int
+  createdBy   User @relation("TaskCreator", fields: [createdById], references: [id])
+
+  assignedEaId Int?
+  assignedEa   User? @relation("TaskEA", fields: [assignedEaId], references: [id])
+
+  assignedEmployeeId Int?
+  assignedEmployee   Employee? @relation("TaskEmployee", fields: [assignedEmployeeId], references: [id])
+
+  startDate          DateTime?
+  originalTargetDate DateTime?
+  currentTargetDate  DateTime?
+
+  eaFirstActionAt DateTime?
+  eaLateResponse  Boolean?
+
+  delayCount            Int @default(0)
+  targetDateUpdateCount Int @default(0)
+
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  statusHistory TaskStatusHistory[]
+  delays        TaskDelay[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TaskStatusHistory {
+  id Int @id @default(autoincrement())
+
+  taskId Int
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  fromStatus TaskStatus?
+  toStatus   TaskStatus
+
+  changedById Int
+  changedBy   User @relation(fields: [changedById], references: [id])
+
+  note String? @db.Text
+
+  createdAt DateTime @default(now())
+}
+
+model TaskDelay {
+  id Int @id @default(autoincrement())
+
+  taskId Int
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  oldTargetDate DateTime?
+  newTargetDate DateTime
+
+  reason      String @db.Text
+  delayNumber Int
+
+  createdById Int
+  createdBy   User @relation(fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+}

@@ -1,0 +1,20 @@
+@'
+node_modules/
+client/node_modules/
+server/node_modules/
+
+.env
+.env.*
+client/.env
+server/.env
+
+server/generated/
+client/dist/
+server/dist/
+
+*.log
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+'@ | Set-Content .gitignore
