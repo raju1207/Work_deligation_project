@@ -254,4 +254,237 @@ router.post("/", async (req: AuthRequest, res) => {
   }
 });
 
+router.patch("/:id/assign", async (req: AuthRequest, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const user = req.user!;
+    const taskId = Number(req.params.id);
+
+    const {
+      assignedEmployeeId,
+      startDate,
+      targetDate,
+    } = req.body;
+
+    if (
+      !taskId ||
+      !assignedEmployeeId ||
+      !startDate ||
+      !targetDate
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Employee, start date and target date are required",
+      });
+    }
+
+    const parsedStartDate = new Date(startDate);
+    const parsedTargetDate = new Date(targetDate);
+
+    if (
+      Number.isNaN(parsedStartDate.getTime()) ||
+      Number.isNaN(parsedTargetDate.getTime())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid start date or target date",
+      });
+    }
+
+    if (parsedTargetDate < parsedStartDate) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Target date cannot be earlier than start date",
+      });
+    }
+
+    const [taskRows] = await connection.query(
+      `
+      SELECT
+        id,
+        status,
+        responsibility,
+        assignedEaId,
+        departmentId,
+        createdAt,
+        eaFirstActionAt
+      FROM Task
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [taskId]
+    );
+
+    const tasks = taskRows as any[];
+
+    if (tasks.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Task not found",
+      });
+    }
+
+    const task = tasks[0];
+
+    const managementRoles = ["ADMIN", "MD"];
+
+    const canManage =
+      managementRoles.includes(user.role) ||
+      (
+        user.role === "EA" &&
+        task.assignedEaId === user.userId
+      );
+
+    if (!canManage) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are not authorized to assign this delegation",
+      });
+    }
+
+    if (task.responsibility !== "EA") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This delegation is no longer pending with EA",
+      });
+    }
+
+    const [employeeRows] = await connection.query(
+      `
+      SELECT
+        id,
+        departmentId,
+        isActive
+      FROM Employee
+      WHERE id = ?
+        AND isActive = true
+      LIMIT 1
+      `,
+      [assignedEmployeeId]
+    );
+
+    const employees = employeeRows as any[];
+
+    if (employees.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Selected employee is invalid",
+      });
+    }
+
+    const employee = employees[0];
+
+    if (
+      employee.departmentId &&
+      employee.departmentId !== task.departmentId
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Employee does not belong to this task department",
+      });
+    }
+
+    const now = new Date();
+
+    const createdAt = new Date(task.createdAt);
+
+    const responseHours =
+      (now.getTime() - createdAt.getTime()) /
+      (1000 * 60 * 60);
+
+    const eaLateResponse = responseHours > 2;
+
+    await connection.beginTransaction();
+
+    await connection.query(
+      `
+      UPDATE Task
+      SET
+        assignedEmployeeId = ?,
+        startDate = ?,
+        originalTargetDate = ?,
+        currentTargetDate = ?,
+        responsibility = 'EMPLOYEE',
+        status = 'IN_PROGRESS',
+
+        eaFirstActionAt =
+          COALESCE(eaFirstActionAt, NOW(3)),
+
+        eaLateResponse =
+          CASE
+            WHEN eaFirstActionAt IS NULL
+            THEN ?
+            ELSE eaLateResponse
+          END,
+
+        updatedAt = NOW(3)
+
+      WHERE id = ?
+      `,
+      [
+        Number(assignedEmployeeId),
+        parsedStartDate,
+        parsedTargetDate,
+        parsedTargetDate,
+        eaLateResponse,
+        taskId,
+      ]
+    );
+
+    await connection.query(
+      `
+      INSERT INTO TaskStatusHistory
+      (
+        taskId,
+        fromStatus,
+        toStatus,
+        changedById,
+        note,
+        createdAt
+      )
+      VALUES
+      (
+        ?,
+        ?,
+        'IN_PROGRESS',
+        ?,
+        ?,
+        NOW(3)
+      )
+      `,
+      [
+        taskId,
+        task.status,
+        user.userId,
+        "Employee assigned and delegation started",
+      ]
+    );
+
+    await connection.commit();
+
+    return res.json({
+      success: true,
+      message:
+        "Delegation assigned to employee successfully",
+    });
+  } catch (error) {
+    await connection.rollback();
+
+    console.error("ASSIGN TASK ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to assign delegation",
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 export default router;

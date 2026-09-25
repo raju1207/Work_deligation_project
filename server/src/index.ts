@@ -7,6 +7,7 @@ import { db } from "./lib/db.js";
 import authRouter from "./routes/auth.js";
 import taskRouter from "./routes/tasks.js";
 import userRouter from "./routes/users.js";
+import employeeRouter from "./routes/employees.js";
 
 dotenv.config();
 
@@ -26,6 +27,7 @@ app.use(express.json());
 app.use("/api/auth", authRouter);
 app.use("/api/tasks", taskRouter);
 app.use("/api/users", userRouter);
+app.use("/api/employees", employeeRouter);
 
 app.get("/", (req, res) => {
   res.json({

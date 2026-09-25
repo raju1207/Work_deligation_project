@@ -20,6 +20,13 @@ const users = [
     password: "Ea123456",
     role: "EA",
   },
+  {
+  name: "Local Employee",
+  email: "employee@local.test",
+  password: "Employee12345",
+  role: "EMPLOYEE",
+},
+
 ];
 
 async function seedUsers() {
