@@ -68,6 +68,31 @@ app.get("/api/db-health", async (req, res) => {
   }
 });
 
+app.get("/api/departments", async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        id,
+        name
+      FROM Department
+      WHERE isActive = true
+      ORDER BY name
+    `);
+
+    return res.json({
+      success: true,
+      data: rows,
+    });
+  } catch (error) {
+    console.error("GET DEPARTMENTS ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load departments",
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
