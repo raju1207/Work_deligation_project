@@ -2,6 +2,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type FormEvent,
 } from "react";
 
 import {
@@ -70,7 +71,8 @@ const managementRoles = [
 ];
 
 export default function Tasks() {
-  const navigate = useNavigate();
+  const navigate =
+    useNavigate();
 
   const [
     currentUser,
@@ -115,8 +117,13 @@ export default function Tasks() {
     setTargetDate,
   ] = useState("");
 
+  const [
+    assignmentRemarks,
+    setAssignmentRemarks,
+  ] = useState("");
+
   /* ==========================================
-     UPDATE TASK
+     UPDATE DELEGATION
   ========================================== */
 
   const [
@@ -129,9 +136,7 @@ export default function Tasks() {
   const [
     newStatus,
     setNewStatus,
-  ] = useState(
-    "IN_PROGRESS"
-  );
+  ] = useState("");
 
   const [
     statusNote,
@@ -172,40 +177,30 @@ export default function Tasks() {
   }, []);
 
   /* ==========================================
-     SORT ORDER
+     SORT TASKS
   ========================================== */
 
   const sortedTasks =
     useMemo(() => {
-
       const statusOrder:
-        Record<string, number> =
-      {
-        NEW: 1,
-
-        IN_PROGRESS: 2,
-
-        ON_HOLD: 3,
-
-        DELAYED: 3,
-
-        COMPLETED: 4,
-
-        CANCELLED: 5,
-      };
+        Record<string, number> = {
+          NEW: 1,
+          IN_PROGRESS: 2,
+          ON_HOLD: 3,
+          DELAYED: 3,
+          COMPLETED: 4,
+          CANCELLED: 5,
+        };
 
       return [...tasks].sort(
         (a, b) => {
-
           const aOrder =
-            statusOrder[
-              a.status
-            ] ?? 99;
+            statusOrder[a.status] ??
+            99;
 
           const bOrder =
-            statusOrder[
-              b.status
-            ] ?? 99;
+            statusOrder[b.status] ??
+            99;
 
           if (
             aOrder !== bOrder
@@ -215,11 +210,6 @@ export default function Tasks() {
               bOrder
             );
           }
-
-          /*
-            WITHIN SAME STATUS:
-            LATEST TASK FIRST
-          */
 
           return (
             new Date(
@@ -231,18 +221,16 @@ export default function Tasks() {
           );
         }
       );
-
     }, [tasks]);
 
   /* ==========================================
-     COUNTS
+     COUNT CARDS
   ========================================== */
 
   const newCount =
     tasks.filter(
       (task) =>
-        task.status ===
-        "NEW"
+        task.status === "NEW"
     ).length;
 
   const inProgressCount =
@@ -251,11 +239,6 @@ export default function Tasks() {
         task.status ===
         "IN_PROGRESS"
     ).length;
-
-  /*
-    PENDING GROUP:
-    ON HOLD + DELAYED
-  */
 
   const pendingCount =
     tasks.filter(
@@ -376,6 +359,9 @@ export default function Tasks() {
 
   /* ==========================================
      ASSIGN PERMISSION
+
+     NEW TASK:
+     ASSIGN ONLY
   ========================================== */
 
   function canAssign(
@@ -388,6 +374,12 @@ export default function Tasks() {
     }
 
     if (
+      task.status !== "NEW"
+    ) {
+      return false;
+    }
+
+    if (
       task.responsibility !==
       "EA"
     ) {
@@ -395,10 +387,7 @@ export default function Tasks() {
     }
 
     if (
-      task.status ===
-        "COMPLETED" ||
-      task.status ===
-        "CANCELLED"
+      task.assignedEmployeeId
     ) {
       return false;
     }
@@ -408,6 +397,8 @@ export default function Tasks() {
 
   /* ==========================================
      UPDATE PERMISSION
+
+     ONLY AFTER EMPLOYEE ASSIGNMENT
   ========================================== */
 
   function canUpdateTask(
@@ -421,9 +412,29 @@ export default function Tasks() {
 
     if (
       task.status ===
+        "NEW"
+    ) {
+      return false;
+    }
+
+    if (
+      task.status ===
         "COMPLETED" ||
       task.status ===
         "CANCELLED"
+    ) {
+      return false;
+    }
+
+    if (
+      task.responsibility !==
+        "EMPLOYEE"
+    ) {
+      return false;
+    }
+
+    if (
+      !task.assignedEmployeeId
     ) {
       return false;
     }
@@ -443,6 +454,7 @@ export default function Tasks() {
     setEmployeeId("");
     setStartDate("");
     setTargetDate("");
+    setAssignmentRemarks("");
 
     setMessage("");
     setError("");
@@ -471,15 +483,26 @@ export default function Tasks() {
   }
 
   /* ==========================================
-     ASSIGN EMPLOYEE
+     ASSIGN
   ========================================== */
 
   async function assignEmployee(
-    e: React.FormEvent
+    e: FormEvent
   ) {
     e.preventDefault();
 
     if (!selectedTask) {
+      return;
+    }
+
+    if (
+      targetDate <
+      startDate
+    ) {
+      setError(
+        "Target date cannot be before start date."
+      );
+
       return;
     }
 
@@ -500,6 +523,9 @@ export default function Tasks() {
           startDate,
 
           targetDate,
+
+          assignmentRemarks:
+            assignmentRemarks.trim(),
         }
       );
 
@@ -516,6 +542,8 @@ export default function Tasks() {
       setStartDate("");
 
       setTargetDate("");
+
+      setAssignmentRemarks("");
 
       await loadData();
 
@@ -542,18 +570,14 @@ export default function Tasks() {
   ) {
     setUpdateTask(task);
 
-    if (
-      task.status ===
-      "DELAYED"
-    ) {
-      setNewStatus(
-        "IN_PROGRESS"
-      );
-    } else {
-      setNewStatus(
-        task.status
-      );
-    }
+    /*
+      Do not preselect a status.
+
+      Management must deliberately
+      select what happened.
+    */
+
+    setNewStatus("");
 
     setStatusNote("");
 
@@ -567,16 +591,84 @@ export default function Tasks() {
   }
 
   /* ==========================================
-     UPDATE STATUS
+     UPDATE WORKFLOW
   ========================================== */
 
   async function submitTaskUpdate(
-    e: React.FormEvent
+    e: FormEvent
   ) {
     e.preventDefault();
 
     if (!updateTask) {
       return;
+    }
+
+    if (!newStatus) {
+      setError(
+        "Please select an update action."
+      );
+
+      return;
+    }
+
+    /*
+      PENDING NEEDS REASON
+    */
+
+    if (
+      newStatus ===
+        "ON_HOLD" &&
+      !statusNote.trim()
+    ) {
+      setError(
+        "Please enter the pending reason."
+      );
+
+      return;
+    }
+
+    /*
+      DELAY NEEDS REASON
+      AND REVISED TARGET
+    */
+
+    if (
+      newStatus ===
+        "DELAYED"
+    ) {
+      if (
+        !delayReason.trim()
+      ) {
+        setError(
+          "Please enter the delay reason."
+        );
+
+        return;
+      }
+
+      if (
+        !newTargetDate
+      ) {
+        setError(
+          "Please select the revised target date."
+        );
+
+        return;
+      }
+
+      if (
+        (
+          updateTask
+            .targetDateUpdateCount ||
+          0
+        ) >= 3
+      ) {
+        setError(
+          "Maximum 3 target revisions are allowed."
+        );
+
+        return;
+      }
     }
 
     setLoading(true);
@@ -595,13 +687,13 @@ export default function Tasks() {
           note:
             newStatus !==
             "DELAYED"
-              ? statusNote
+              ? statusNote.trim()
               : undefined,
 
           delayReason:
             newStatus ===
             "DELAYED"
-              ? delayReason
+              ? delayReason.trim()
               : undefined,
 
           newTargetDate:
@@ -612,17 +704,50 @@ export default function Tasks() {
         }
       );
 
+      let successText =
+        "updated";
+
+      if (
+        newStatus ===
+        "ON_HOLD"
+      ) {
+        successText =
+          "moved to Pending";
+      }
+
+      if (
+        newStatus ===
+        "DELAYED"
+      ) {
+        successText =
+          "marked Delayed";
+      }
+
+      if (
+        newStatus ===
+        "COMPLETED"
+      ) {
+        successText =
+          "completed";
+      }
+
+      if (
+        newStatus ===
+        "IN_PROGRESS"
+      ) {
+        successText =
+          "moved to In Progress";
+      }
+
       setMessage(
-        `Delegation #${updateTask.id} updated successfully.`
+        `Delegation #${updateTask.id} ${successText} successfully.`
       );
 
       setUpdateTask(
         null
       );
 
-      setNewStatus(
-        "IN_PROGRESS"
-      );
+      setNewStatus("");
 
       setStatusNote("");
 
@@ -647,10 +772,10 @@ export default function Tasks() {
   }
 
   /* ==========================================
-     DATE
+     DATE ONLY
   ========================================== */
 
-  function formatDate(
+  function formatDateOnly(
     value?: string
   ) {
     if (!value) {
@@ -668,7 +793,99 @@ export default function Tasks() {
       return "-";
     }
 
-    return date.toLocaleString();
+    return date.toLocaleDateString();
+  }
+
+  /* ==========================================
+     MINIMUM REVISED TARGET
+  ========================================== */
+
+  function minimumRevisedTarget(
+    value?: string
+  ) {
+    if (!value) {
+      return undefined;
+    }
+
+    const date =
+      new Date(value);
+
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      return undefined;
+    }
+
+    date.setDate(
+      date.getDate() + 1
+    );
+
+    const year =
+      date.getFullYear();
+
+    const month =
+      String(
+        date.getMonth() + 1
+      ).padStart(
+        2,
+        "0"
+      );
+
+    const day =
+      String(
+        date.getDate()
+      ).padStart(
+        2,
+        "0"
+      );
+
+    return `${year}-${month}-${day}`;
+  }
+
+  /* ==========================================
+     STATUS DISPLAY
+  ========================================== */
+
+  function displayStatus(
+    status: string
+  ) {
+    if (
+      status ===
+      "ON_HOLD"
+    ) {
+      return "PENDING";
+    }
+
+    if (
+      status ===
+      "COMPLETED"
+    ) {
+      return "COMPLETE";
+    }
+
+    return status.replaceAll(
+      "_",
+      " "
+    );
+  }
+
+  /* ==========================================
+     UPDATE ACTION LABEL
+  ========================================== */
+
+  function progressOptionLabel() {
+    if (
+      updateTask?.status ===
+        "ON_HOLD" ||
+      updateTask?.status ===
+        "DELAYED"
+    ) {
+      return "Resume Work";
+    }
+
+    return "Keep In Progress";
   }
 
   /* ==========================================
@@ -678,7 +895,7 @@ export default function Tasks() {
   return (
     <div className="tasks-page">
 
-      {/* COUNTS */}
+      {/* COUNT CARDS */}
 
       <div className="task-stats">
 
@@ -712,7 +929,7 @@ export default function Tasks() {
 
       </div>
 
-      {/* MESSAGE */}
+      {/* MESSAGES */}
 
       {message && (
         <div className="task-message">
@@ -726,7 +943,9 @@ export default function Tasks() {
         </div>
       )}
 
-      {/* TASK TABLE */}
+      {/* ======================================
+          TABLE
+      ====================================== */}
 
       <div className="task-table-card">
 
@@ -811,13 +1030,11 @@ export default function Tasks() {
                     </td>
 
                     <td>
-
                       <strong>
                         {
                           task.title
                         }
                       </strong>
-
                     </td>
 
                     <td>
@@ -847,7 +1064,7 @@ export default function Tasks() {
                     </td>
 
                     <td>
-                      {formatDate(
+                      {formatDateOnly(
                         task.currentTargetDate
                       )}
                     </td>
@@ -863,12 +1080,9 @@ export default function Tasks() {
                       <span
                         className={`status-pill status-${task.status.toLowerCase()}`}
                       >
-
-                        {task.status.replaceAll(
-                          "_",
-                          " "
+                        {displayStatus(
+                          task.status
                         )}
-
                       </span>
 
                     </td>
@@ -896,7 +1110,7 @@ export default function Tasks() {
                         }}
                       >
 
-                        {/* EMPLOYEE VIEW */}
+                        {/* EMPLOYEE */}
 
                         {canEmployeeViewTask(
                           task
@@ -924,7 +1138,7 @@ export default function Tasks() {
 
                         )}
 
-                        {/* MANAGEMENT ASSIGN */}
+                        {/* NEW = ASSIGN ONLY */}
 
                         {canAssign(
                           task
@@ -944,7 +1158,7 @@ export default function Tasks() {
 
                         )}
 
-                        {/* MANAGEMENT UPDATE */}
+                        {/* ASSIGNED = UPDATE ONLY */}
 
                         {canUpdateTask(
                           task
@@ -1143,11 +1357,9 @@ export default function Tasks() {
                   0 && (
 
                   <small className="field-warning">
-
                     No active employee
                     found for this
                     department.
-
                   </small>
 
                 )}
@@ -1157,11 +1369,11 @@ export default function Tasks() {
               <div className="form-group">
 
                 <label>
-                  Start Date & Time *
+                  Start Date *
                 </label>
 
                 <input
-                  type="datetime-local"
+                  type="date"
 
                   value={
                     startDate
@@ -1181,11 +1393,16 @@ export default function Tasks() {
               <div className="form-group">
 
                 <label>
-                  Target Date & Time *
+                  Target Date *
                 </label>
 
                 <input
-                  type="datetime-local"
+                  type="date"
+
+                  min={
+                    startDate ||
+                    undefined
+                  }
 
                   value={
                     targetDate
@@ -1198,6 +1415,30 @@ export default function Tasks() {
                   }
 
                   required
+                />
+
+              </div>
+
+              <div className="form-group">
+
+                <label>
+                  Assignment Remarks
+                </label>
+
+                <textarea
+                  rows={3}
+
+                  value={
+                    assignmentRemarks
+                  }
+
+                  onChange={(e) =>
+                    setAssignmentRemarks(
+                      e.target.value
+                    )
+                  }
+
+                  placeholder="Enter remarks if required"
                 />
 
               </div>
@@ -1245,11 +1486,9 @@ export default function Tasks() {
                       0
                   }
                 >
-
                   {loading
                     ? "Assigning..."
                     : "Assign & Start"}
-
                 </button>
 
               </div>
@@ -1303,6 +1542,8 @@ export default function Tasks() {
 
             </div>
 
+            {/* CURRENT INFORMATION */}
+
             <div className="assignment-info">
 
               <div>
@@ -1312,10 +1553,24 @@ export default function Tasks() {
                 </span>
 
                 <strong>
-                  {updateTask.status.replaceAll(
-                    "_",
-                    " "
+                  {displayStatus(
+                    updateTask.status
                   )}
+                </strong>
+
+              </div>
+
+              <div>
+
+                <span>
+                  Employee
+                </span>
+
+                <strong>
+                  {
+                    updateTask.assignedEmployeeName ||
+                    "-"
+                  }
                 </strong>
 
               </div>
@@ -1327,24 +1582,9 @@ export default function Tasks() {
                 </span>
 
                 <strong>
-                  {formatDate(
+                  {formatDateOnly(
                     updateTask.currentTargetDate
                   )}
-                </strong>
-
-              </div>
-
-              <div>
-
-                <span>
-                  Delay Count
-                </span>
-
-                <strong>
-                  {
-                    updateTask.delayCount ||
-                    0
-                  }
                 </strong>
 
               </div>
@@ -1357,10 +1597,12 @@ export default function Tasks() {
               }
             >
 
+              {/* UPDATE ACTION */}
+
               <div className="form-group">
 
                 <label>
-                  New Status *
+                  Update Action *
                 </label>
 
                 <select
@@ -1368,34 +1610,110 @@ export default function Tasks() {
                     newStatus
                   }
 
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setNewStatus(
                       e.target.value
-                    )
-                  }
+                    );
+
+                    setStatusNote("");
+
+                    setDelayReason("");
+
+                    setNewTargetDate("");
+                  }}
 
                   required
                 >
 
+                  <option value="">
+                    Select Action
+                  </option>
+
                   <option value="IN_PROGRESS">
-                    In Progress
+                    {progressOptionLabel()}
                   </option>
 
                   <option value="ON_HOLD">
-                    Pending / On Hold
+                    Move to Pending
                   </option>
 
                   <option value="DELAYED">
-                    Delayed
+                    Delay / Revise Target
                   </option>
 
                   <option value="COMPLETED">
-                    Completed
+                    Complete Delegation
                   </option>
 
                 </select>
 
               </div>
+
+              {/* IN PROGRESS */}
+
+              {newStatus ===
+                "IN_PROGRESS" && (
+
+                <div className="form-group">
+
+                  <label>
+                    Progress Remarks
+                  </label>
+
+                  <textarea
+                    rows={3}
+
+                    value={
+                      statusNote
+                    }
+
+                    onChange={(e) =>
+                      setStatusNote(
+                        e.target.value
+                      )
+                    }
+
+                    placeholder="Enter progress remarks if required"
+                  />
+
+                </div>
+
+              )}
+
+              {/* PENDING */}
+
+              {newStatus ===
+                "ON_HOLD" && (
+
+                <div className="form-group">
+
+                  <label>
+                    Pending Reason *
+                  </label>
+
+                  <textarea
+                    rows={3}
+
+                    value={
+                      statusNote
+                    }
+
+                    onChange={(e) =>
+                      setStatusNote(
+                        e.target.value
+                      )
+                    }
+
+                    placeholder="Why is this delegation pending?"
+
+                    required
+                  />
+
+                </div>
+
+              )}
+
+              {/* DELAY */}
 
               {newStatus ===
                 "DELAYED" && (
@@ -1403,17 +1721,24 @@ export default function Tasks() {
 
                   <div className="delay-warning">
 
-                    Target date revisions used:{" "}
+                    Current Target:{" "}
 
                     <strong>
+                      {formatDateOnly(
+                        updateTask.currentTargetDate
+                      )}
+                    </strong>
 
+                    <br />
+
+                    Target revisions used:{" "}
+
+                    <strong>
                       {
                         updateTask.targetDateUpdateCount ||
                         0
                       }
-
                       {" / 3"}
-
                     </strong>
 
                   </div>
@@ -1437,7 +1762,7 @@ export default function Tasks() {
                         )
                       }
 
-                      placeholder="Enter reason for delay"
+                      placeholder="Why is the target date being revised?"
 
                       required
                     />
@@ -1447,11 +1772,17 @@ export default function Tasks() {
                   <div className="form-group">
 
                     <label>
-                      New Target Date & Time *
+                      Revised Target Date *
                     </label>
 
                     <input
-                      type="datetime-local"
+                      type="date"
+
+                      min={
+                        minimumRevisedTarget(
+                          updateTask.currentTargetDate
+                        )
+                      }
 
                       value={
                         newTargetDate
@@ -1471,46 +1802,44 @@ export default function Tasks() {
                 </>
               )}
 
-              {newStatus !==
-                "DELAYED" && (
-
-                <div className="form-group">
-
-                  <label>
-                    Remarks / Note
-                  </label>
-
-                  <textarea
-                    rows={3}
-
-                    value={
-                      statusNote
-                    }
-
-                    onChange={(e) =>
-                      setStatusNote(
-                        e.target.value
-                      )
-                    }
-
-                    placeholder="Enter remarks"
-                  />
-
-                </div>
-
-              )}
+              {/* COMPLETED */}
 
               {newStatus ===
                 "COMPLETED" && (
+                <>
 
-                <div className="completion-warning">
+                  <div className="completion-warning">
+                    This will close the delegation and move it to the bottom of Task Management.
+                  </div>
 
-                  This will mark the
-                  delegation as completed.
+                  <div className="form-group">
 
-                </div>
+                    <label>
+                      Completion Remarks
+                    </label>
 
+                    <textarea
+                      rows={3}
+
+                      value={
+                        statusNote
+                      }
+
+                      onChange={(e) =>
+                        setStatusNote(
+                          e.target.value
+                        )
+                      }
+
+                      placeholder="Enter completion remarks if required"
+                    />
+
+                  </div>
+
+                </>
               )}
+
+              {/* BUTTONS */}
 
               <div className="task-form-actions">
 
@@ -1533,6 +1862,7 @@ export default function Tasks() {
 
                   disabled={
                     loading ||
+                    !newStatus ||
                     (
                       newStatus ===
                         "DELAYED" &&
@@ -1546,7 +1876,7 @@ export default function Tasks() {
 
                   {loading
                     ? "Updating..."
-                    : "Update Delegation"}
+                    : "Save Update"}
 
                 </button>
 

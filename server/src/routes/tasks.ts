@@ -1,22 +1,19 @@
-import {
-  Router,
-} from "express";
+import { Router } from "express";
 
-import {
-  db,
-} from "../lib/db.js";
+import { db } from "../lib/db.js";
 
 import {
   requireAuth,
   type AuthRequest,
 } from "../middleware/auth.js";
 
-const router =
-  Router();
+const router = Router();
 
-router.use(
-  requireAuth
-);
+router.use(requireAuth);
+
+/* ============================================
+   ROLES
+============================================ */
 
 const managementRoles = [
   "ADMIN",
@@ -33,9 +30,106 @@ const delegationCreatorRoles = [
   "EMPLOYEE",
 ];
 
-/* =========================================================
-   GET TASK LIST
-========================================================= */
+function isManagementRole(
+  role: string
+) {
+  return managementRoles.includes(
+    role
+  );
+}
+
+/* ============================================
+   DATE HELPERS
+============================================ */
+
+function normaliseDate(
+  value: string,
+  endOfDay = false
+) {
+  if (
+    !value ||
+    typeof value !== "string"
+  ) {
+    return null;
+  }
+
+  const trimmed =
+    value.trim();
+
+  const dateOnlyPattern =
+    /^\d{4}-\d{2}-\d{2}$/;
+
+  if (
+    dateOnlyPattern.test(
+      trimmed
+    )
+  ) {
+    return `${trimmed} ${
+      endOfDay
+        ? "23:59:59"
+        : "00:00:00"
+    }`;
+  }
+
+  const parsed =
+    new Date(trimmed);
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function getDateKey(
+  value: any
+) {
+  if (!value) {
+    return "";
+  }
+
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return "";
+  }
+
+  const year =
+    date.getFullYear();
+
+  const month =
+    String(
+      date.getMonth() + 1
+    ).padStart(
+      2,
+      "0"
+    );
+
+  const day =
+    String(
+      date.getDate()
+    ).padStart(
+      2,
+      "0"
+    );
+
+  return `${year}-${month}-${day}`;
+}
+
+/* ============================================
+   GET TASKS
+============================================ */
 
 router.get(
   "/",
@@ -47,86 +141,26 @@ router.get(
       const user =
         req.user!;
 
-      const isManagement =
-        managementRoles.includes(
-          user.role
-        );
+      let whereClause = "";
 
-      let sql = `
-        SELECT
-          t.id,
-          t.title,
-          t.description,
-          t.priority,
-          t.status,
-          t.responsibility,
-
-          t.startDate,
-          t.originalTargetDate,
-          t.currentTargetDate,
-
-          t.eaFirstActionAt,
-          t.eaLateResponse,
-
-          t.delayCount,
-          t.targetDateUpdateCount,
-
-          t.completedAt,
-          t.cancelledAt,
-
-          t.createdAt,
-          t.updatedAt,
-
-          d.id AS departmentId,
-          d.name AS departmentName,
-
-          creator.id AS createdById,
-          creator.name AS createdByName,
-
-          ea.id AS assignedEaId,
-          ea.name AS assignedEaName,
-          ea.email AS assignedEaEmail,
-
-          emp.id AS assignedEmployeeId,
-          emp.fullName AS assignedEmployeeName,
-          emp.officialEmail AS assignedEmployeeEmail,
-          emp.userId AS assignedEmployeeUserId
-
-        FROM Task t
-
-        INNER JOIN Department d
-          ON d.id =
-             t.departmentId
-
-        INNER JOIN \`User\` creator
-          ON creator.id =
-             t.createdById
-
-        LEFT JOIN \`User\` ea
-          ON ea.id =
-             t.assignedEaId
-
-        LEFT JOIN Employee emp
-          ON emp.id =
-             t.assignedEmployeeId
-      `;
-
-      const params:
-        any[] = [];
+      const params: any[] =
+        [];
 
       /*
         MANAGEMENT:
-        ADMIN / MD / HR / EA
-        can see all delegations.
+        SEE EVERYTHING
 
         EMPLOYEE:
-        can only see delegation:
-        1. created by employee
-        2. assigned to employee
+        OWN CREATED +
+        OWN ASSIGNED
       */
 
-      if (!isManagement) {
-        sql += `
+      if (
+        !isManagementRole(
+          user.role
+        )
+      ) {
+        whereClause = `
           WHERE
             t.createdById = ?
             OR emp.userId = ?
@@ -138,14 +172,86 @@ router.get(
         );
       }
 
-      sql += `
-        ORDER BY
-          t.createdAt DESC
-      `;
-
       const [rows] =
         await db.query(
-          sql,
+          `
+          SELECT
+
+            t.id,
+            t.title,
+            t.description,
+
+            t.priority,
+            t.status,
+            t.responsibility,
+
+            t.departmentId,
+            d.name
+              AS departmentName,
+
+            t.createdById,
+            creator.name
+              AS createdByName,
+            creator.email
+              AS createdByEmail,
+
+            t.assignedEaId,
+            ea.name
+              AS assignedEaName,
+            ea.email
+              AS assignedEaEmail,
+
+            t.assignedEmployeeId,
+
+            emp.fullName
+              AS assignedEmployeeName,
+
+            emp.officialEmail
+              AS assignedEmployeeEmail,
+
+            emp.userId
+              AS assignedEmployeeUserId,
+
+            t.startDate,
+
+            t.originalTargetDate,
+            t.currentTargetDate,
+
+            t.eaFirstActionAt,
+            t.eaLateResponse,
+
+            t.delayCount,
+            t.targetDateUpdateCount,
+
+            t.completedAt,
+            t.cancelledAt,
+
+            t.createdAt,
+            t.updatedAt
+
+          FROM Task t
+
+          INNER JOIN Department d
+            ON d.id =
+               t.departmentId
+
+          INNER JOIN \`User\` creator
+            ON creator.id =
+               t.createdById
+
+          LEFT JOIN \`User\` ea
+            ON ea.id =
+               t.assignedEaId
+
+          LEFT JOIN Employee emp
+            ON emp.id =
+               t.assignedEmployeeId
+
+          ${whereClause}
+
+          ORDER BY
+            t.createdAt DESC
+          `,
           params
         );
 
@@ -167,16 +273,15 @@ router.get(
           success: false,
 
           message:
-            "Unable to load tasks",
+            "Unable to load delegations",
         });
-
     }
   }
 );
 
-/* =========================================================
-   GET SINGLE TASK + COMPLETE HISTORY
-========================================================= */
+/* ============================================
+   GET TASK DETAILS
+============================================ */
 
 router.get(
   "/:id/details",
@@ -193,13 +298,18 @@ router.get(
           req.params.id
         );
 
-      if (!taskId) {
+      if (
+        !Number.isInteger(
+          taskId
+        )
+      ) {
         return res
           .status(400)
           .json({
             success: false,
+
             message:
-              "Invalid task ID",
+              "Invalid delegation ID",
           });
       }
 
@@ -207,14 +317,49 @@ router.get(
         await db.query(
           `
           SELECT
+
             t.id,
             t.title,
             t.description,
+
             t.priority,
             t.status,
             t.responsibility,
 
+            t.departmentId,
+
+            d.name
+              AS departmentName,
+
+            t.createdById,
+
+            creator.name
+              AS createdByName,
+
+            creator.email
+              AS createdByEmail,
+
+            t.assignedEaId,
+
+            ea.name
+              AS assignedEaName,
+
+            ea.email
+              AS assignedEaEmail,
+
+            t.assignedEmployeeId,
+
+            emp.fullName
+              AS assignedEmployeeName,
+
+            emp.officialEmail
+              AS assignedEmployeeEmail,
+
+            emp.userId
+              AS assignedEmployeeUserId,
+
             t.startDate,
+
             t.originalTargetDate,
             t.currentTargetDate,
 
@@ -228,23 +373,7 @@ router.get(
             t.cancelledAt,
 
             t.createdAt,
-            t.updatedAt,
-
-            d.id AS departmentId,
-            d.name AS departmentName,
-
-            creator.id AS createdById,
-            creator.name AS createdByName,
-            creator.email AS createdByEmail,
-
-            ea.id AS assignedEaId,
-            ea.name AS assignedEaName,
-            ea.email AS assignedEaEmail,
-
-            emp.id AS assignedEmployeeId,
-            emp.fullName AS assignedEmployeeName,
-            emp.officialEmail AS assignedEmployeeEmail,
-            emp.userId AS assignedEmployeeUserId
+            t.updatedAt
 
           FROM Task t
 
@@ -269,80 +398,85 @@ router.get(
 
           LIMIT 1
           `,
-          [
-            taskId,
-          ]
+          [taskId]
         );
 
-      const tasks =
-        taskRows as any[];
+      const task =
+        (taskRows as any[])[0];
 
-      if (
-        tasks.length ===
-        0
-      ) {
+      if (!task) {
         return res
           .status(404)
           .json({
             success: false,
+
             message:
-              "Task not found",
+              "Delegation not found",
           });
       }
 
-      const task =
-        tasks[0];
-
-      const isManagement =
-        managementRoles.includes(
-          user.role
-        );
-
-      const createdByUser =
-        Number(
-          task.createdById
-        ) ===
-        Number(
-          user.userId
-        );
-
-      const assignedEmployee =
-        Number(
-          task.assignedEmployeeUserId
-        ) ===
-        Number(
-          user.userId
-        );
+      /* EMPLOYEE ACCESS */
 
       if (
-        !isManagement &&
-        !createdByUser &&
-        !assignedEmployee
+        !isManagementRole(
+          user.role
+        )
       ) {
-        return res
-          .status(403)
-          .json({
-            success: false,
+        const isCreator =
+          Number(
+            task.createdById
+          ) ===
+          Number(
+            user.userId
+          );
 
-            message:
-              "You are not authorized to view this delegation",
-          });
+        const isAssigned =
+          Number(
+            task.assignedEmployeeUserId
+          ) ===
+          Number(
+            user.userId
+          );
+
+        if (
+          !isCreator &&
+          !isAssigned
+        ) {
+          return res
+            .status(403)
+            .json({
+              success: false,
+
+              message:
+                "You do not have access to this delegation",
+            });
+        }
       }
+
+      /* STATUS HISTORY */
 
       const [historyRows] =
         await db.query(
           `
           SELECT
+
             h.id,
             h.fromStatus,
             h.toStatus,
             h.note,
-            h.createdAt,
 
-            u.id AS changedById,
-            u.name AS changedByName,
-            u.email AS changedByEmail,
-            u.role AS changedByRole
+            h.changedById,
+
+            u.name
+              AS changedByName,
+
+            u.email
+              AS changedByEmail,
+
+            u.role
+              AS changedByRole,
+
+            h.createdAt
 
           FROM TaskStatusHistory h
 
@@ -354,29 +488,36 @@ router.get(
             h.taskId = ?
 
           ORDER BY
-            h.createdAt ASC,
-            h.id ASC
+            h.createdAt DESC,
+            h.id DESC
           `,
-          [
-            taskId,
-          ]
+          [taskId]
         );
+
+      /* TARGET REVISION HISTORY */
 
       const [delayRows] =
         await db.query(
           `
           SELECT
+
             td.id,
             td.delayNumber,
+
             td.oldTargetDate,
             td.newTargetDate,
-            td.reason,
-            td.createdAt,
 
-            u.id AS createdById,
-            u.name AS createdByName,
-            u.email AS createdByEmail,
-            u.role AS createdByRole
+            td.reason,
+
+            td.createdById,
+
+            u.name
+              AS createdByName,
+
+            u.role
+              AS createdByRole,
+
+            td.createdAt
 
           FROM TaskDelay td
 
@@ -388,12 +529,10 @@ router.get(
             td.taskId = ?
 
           ORDER BY
-            td.delayNumber ASC,
-            td.createdAt ASC
+            td.delayNumber DESC,
+            td.createdAt DESC
           `,
-          [
-            taskId,
-          ]
+          [taskId]
         );
 
       return res.json({
@@ -413,7 +552,7 @@ router.get(
     } catch (error) {
 
       console.error(
-        "GET TASK DETAILS ERROR:",
+        "TASK DETAILS ERROR:",
         error
       );
 
@@ -423,16 +562,15 @@ router.get(
           success: false,
 
           message:
-            "Unable to load task details",
+            "Unable to load delegation details",
         });
-
     }
   }
 );
 
-/* =========================================================
-   CREATE NEW DELEGATION
-========================================================= */
+/* ============================================
+   CREATE DELEGATION
+============================================ */
 
 router.post(
   "/",
@@ -440,22 +578,9 @@ router.post(
     req: AuthRequest,
     res
   ) => {
-    const connection =
-      await db.getConnection();
-
     try {
       const user =
         req.user!;
-
-      /*
-        ONLY:
-        EMPLOYEE
-        EA
-        HR
-        MD
-        ADMIN
-        CAN CREATE
-      */
 
       if (
         !delegationCreatorRoles.includes(
@@ -468,7 +593,7 @@ router.post(
             success: false,
 
             message:
-              "You are not authorized to create a delegation",
+              "You cannot create delegations",
           });
       }
 
@@ -480,8 +605,6 @@ router.post(
         assignedEaId,
       } =
         req.body;
-
-      /* REQUIRED FIELDS */
 
       if (
         !title?.trim() ||
@@ -496,7 +619,7 @@ router.post(
             success: false,
 
             message:
-              "Title, description, priority, department and assigned EA are required",
+              "Task title, description, department, priority and EA are required",
           });
       }
 
@@ -513,58 +636,25 @@ router.post(
           .status(400)
           .json({
             success: false,
+
             message:
               "Invalid priority",
           });
       }
 
-      /* CHECK EA */
-
-      const [eaRows] =
-        await connection.query(
-          `
-          SELECT
-            id
-          FROM \`User\`
-          WHERE
-            id = ?
-            AND role = 'EA'
-            AND isActive = true
-          LIMIT 1
-          `,
-          [
-            Number(
-              assignedEaId
-            ),
-          ]
-        );
-
-      const eas =
-        eaRows as any[];
-
-      if (
-        eas.length === 0
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message:
-              "Selected EA is invalid",
-          });
-      }
-
-      /* CHECK DEPARTMENT */
+      /* DEPARTMENT */
 
       const [departmentRows] =
-        await connection.query(
+        await db.query(
           `
-          SELECT
-            id
+          SELECT id
+
           FROM Department
+
           WHERE
             id = ?
-            AND isActive = true
+            AND isActive = 1
+
           LIMIT 1
           `,
           [
@@ -574,56 +664,102 @@ router.post(
           ]
         );
 
-      const departments =
-        departmentRows as any[];
-
       if (
-        departments.length ===
-        0
+        (departmentRows as any[])
+          .length === 0
       ) {
         return res
           .status(400)
           .json({
             success: false,
+
             message:
-              "Selected department is invalid",
+              "Invalid department",
           });
       }
 
-      await connection.beginTransaction();
+      /* EA */
 
-      const [result] =
-        await connection.query(
+      const [eaRows] =
+        await db.query(
+          `
+          SELECT
+            id,
+            name
+
+          FROM \`User\`
+
+          WHERE
+            id = ?
+            AND role = 'EA'
+            AND isActive = 1
+
+          LIMIT 1
+          `,
+          [
+            Number(
+              assignedEaId
+            ),
+          ]
+        );
+
+      if (
+        (eaRows as any[])
+          .length === 0
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "Selected EA is invalid",
+          });
+      }
+
+      /* CREATE */
+
+      const [result]: any =
+        await db.query(
           `
           INSERT INTO Task
           (
             title,
             description,
             priority,
+
             status,
             responsibility,
+
             departmentId,
             createdById,
             assignedEaId,
+
             delayCount,
             targetDateUpdateCount,
+
             createdAt,
             updatedAt
           )
+
           VALUES
           (
             ?,
             ?,
             ?,
+
             'NEW',
             'EA',
+
             ?,
             ?,
             ?,
+
             0,
             0,
-            NOW(3),
-            NOW(3)
+
+            NOW(),
+            NOW()
           )
           `,
           [
@@ -646,29 +782,32 @@ router.post(
         );
 
       const taskId =
-        (
-          result as any
-        ).insertId;
+        result.insertId;
 
-      await connection.query(
+      await db.query(
         `
         INSERT INTO TaskStatusHistory
         (
           taskId,
           fromStatus,
           toStatus,
+
           changedById,
           note,
+
           createdAt
         )
+
         VALUES
         (
           ?,
           NULL,
           'NEW',
+
           ?,
           ?,
-          NOW(3)
+
+          NOW()
         )
         `,
         [
@@ -679,8 +818,6 @@ router.post(
           "Delegation created",
         ]
       );
-
-      await connection.commit();
 
       return res
         .status(201)
@@ -695,8 +832,6 @@ router.post(
 
     } catch (error) {
 
-      await connection.rollback();
-
       console.error(
         "CREATE TASK ERROR:",
         error
@@ -710,18 +845,13 @@ router.post(
           message:
             "Unable to create delegation",
         });
-
-    } finally {
-
-      connection.release();
-
     }
   }
 );
 
-/* =========================================================
-   MANAGEMENT ASSIGNS EMPLOYEE
-========================================================= */
+/* ============================================
+   ASSIGN EMPLOYEE
+============================================ */
 
 router.patch(
   "/:id/assign",
@@ -729,19 +859,12 @@ router.patch(
     req: AuthRequest,
     res
   ) => {
-    const connection =
-      await db.getConnection();
-
     try {
       const user =
         req.user!;
 
-      /*
-        FULL MANAGEMENT PERMISSION
-      */
-
       if (
-        !managementRoles.includes(
+        !isManagementRole(
           user.role
         )
       ) {
@@ -751,7 +874,7 @@ router.patch(
             success: false,
 
             message:
-              "Only EA, HR, MD or Admin can assign an employee",
+              "You cannot assign delegations",
           });
       }
 
@@ -764,11 +887,26 @@ router.patch(
         assignedEmployeeId,
         startDate,
         targetDate,
+        assignmentRemarks,
       } =
         req.body;
 
       if (
-        !taskId ||
+        !Number.isInteger(
+          taskId
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "Invalid delegation ID",
+          });
+      }
+
+      if (
         !assignedEmployeeId ||
         !startDate ||
         !targetDate
@@ -783,23 +921,51 @@ router.patch(
           });
       }
 
-      const parsedStartDate =
-        new Date(
+      const normalisedStart =
+        normaliseDate(
+          startDate,
+          false
+        );
+
+      const normalisedTarget =
+        normaliseDate(
+          targetDate,
+          true
+        );
+
+      if (
+        !normalisedStart ||
+        !normalisedTarget
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "Invalid start or target date",
+          });
+      }
+
+      const startKey =
+        String(
           startDate
+        ).slice(
+          0,
+          10
         );
 
-      const parsedTargetDate =
-        new Date(
+      const targetKey =
+        String(
           targetDate
+        ).slice(
+          0,
+          10
         );
 
       if (
-        Number.isNaN(
-          parsedStartDate.getTime()
-        ) ||
-        Number.isNaN(
-          parsedTargetDate.getTime()
-        )
+        targetKey <
+        startKey
       ) {
         return res
           .status(400)
@@ -807,37 +973,25 @@ router.patch(
             success: false,
 
             message:
-              "Invalid start date or target date",
+              "Target date cannot be before start date",
           });
       }
 
-      if (
-        parsedTargetDate <
-        parsedStartDate
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              "Target date cannot be earlier than start date",
-          });
-      }
-
-      /* LOAD TASK */
+      /* GET TASK */
 
       const [taskRows] =
-        await connection.query(
+        await db.query(
           `
           SELECT
+
             id,
             status,
             responsibility,
-            assignedEaId,
+
+            assignedEmployeeId,
+
             departmentId,
-            createdAt,
-            eaFirstActionAt
+            createdAt
 
           FROM Task
 
@@ -846,29 +1000,43 @@ router.patch(
 
           LIMIT 1
           `,
-          [
-            taskId,
-          ]
+          [taskId]
         );
 
-      const tasks =
-        taskRows as any[];
+      const task =
+        (taskRows as any[])[0];
 
-      if (
-        tasks.length ===
-        0
-      ) {
+      if (!task) {
         return res
           .status(404)
           .json({
             success: false,
+
             message:
-              "Task not found",
+              "Delegation not found",
           });
       }
 
-      const task =
-        tasks[0];
+      /*
+        STRICT ASSIGNMENT RULE:
+
+        Only NEW delegations
+        can be assigned.
+      */
+
+      if (
+        task.status !==
+        "NEW"
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "Only NEW delegations can be assigned",
+          });
+      }
 
       if (
         task.responsibility !==
@@ -880,25 +1048,40 @@ router.patch(
             success: false,
 
             message:
-              "This delegation is no longer pending for assignment",
+              "This delegation is not waiting for assignment",
           });
       }
 
-      /* CHECK EMPLOYEE */
+      if (
+        task.assignedEmployeeId
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "This delegation is already assigned",
+          });
+      }
+
+      /* EMPLOYEE */
 
       const [employeeRows] =
-        await connection.query(
+        await db.query(
           `
           SELECT
+
             id,
+            fullName,
             departmentId,
-            isActive
+            userId
 
           FROM Employee
 
           WHERE
             id = ?
-            AND isActive = true
+            AND isActive = 1
 
           LIMIT 1
           `,
@@ -909,13 +1092,10 @@ router.patch(
           ]
         );
 
-      const employees =
-        employeeRows as any[];
+      const employee =
+        (employeeRows as any[])[0];
 
-      if (
-        employees.length ===
-        0
-      ) {
+      if (!employee) {
         return res
           .status(400)
           .json({
@@ -926,17 +1106,13 @@ router.patch(
           });
       }
 
-      const employee =
-        employees[0];
-
       if (
-        employee.departmentId &&
         Number(
           employee.departmentId
         ) !==
-          Number(
-            task.departmentId
-          )
+        Number(
+          task.departmentId
+        )
       ) {
         return res
           .status(400)
@@ -944,11 +1120,11 @@ router.patch(
             success: false,
 
             message:
-              "Employee does not belong to this task department",
+              "Employee must belong to the same department",
           });
       }
 
-      /* EA RESPONSE TIME */
+      /* EA RESPONSE */
 
       const now =
         new Date();
@@ -958,24 +1134,25 @@ router.patch(
           task.createdAt
         );
 
-      const responseHours =
-        (
-          now.getTime() -
-          createdAt.getTime()
-        ) /
-        (
-          1000 *
-          60 *
-          60
-        );
+      const elapsed =
+        now.getTime() -
+        createdAt.getTime();
+
+      const twoHours =
+        2 *
+        60 *
+        60 *
+        1000;
 
       const eaLateResponse =
-        responseHours >
-        2;
+        elapsed >
+        twoHours
+          ? 1
+          : 0;
 
-      await connection.beginTransaction();
+      /* UPDATE */
 
-      await connection.query(
+      await db.query(
         `
         UPDATE Task
 
@@ -988,25 +1165,19 @@ router.patch(
 
           currentTargetDate = ?,
 
-          responsibility = 'EMPLOYEE',
+          responsibility =
+            'EMPLOYEE',
 
-          status = 'IN_PROGRESS',
+          status =
+            'IN_PROGRESS',
 
           eaFirstActionAt =
-            COALESCE(
-              eaFirstActionAt,
-              NOW(3)
-            ),
+            NOW(),
 
-          eaLateResponse =
-            CASE
-              WHEN eaFirstActionAt IS NULL
-              THEN ?
-              ELSE eaLateResponse
-            END,
+          eaLateResponse = ?,
 
           updatedAt =
-            NOW(3)
+            NOW()
 
         WHERE
           id = ?
@@ -1016,11 +1187,11 @@ router.patch(
             assignedEmployeeId
           ),
 
-          parsedStartDate,
+          normalisedStart,
 
-          parsedTargetDate,
+          normalisedTarget,
 
-          parsedTargetDate,
+          normalisedTarget,
 
           eaLateResponse,
 
@@ -1028,39 +1199,59 @@ router.patch(
         ]
       );
 
-      await connection.query(
+      let historyNote =
+        `Assigned to ${employee.fullName}`;
+
+      if (
+        assignmentRemarks &&
+        String(
+          assignmentRemarks
+        ).trim()
+      ) {
+        historyNote +=
+          ` | Remarks: ${String(
+            assignmentRemarks
+          ).trim()}`;
+      }
+
+      await db.query(
         `
         INSERT INTO TaskStatusHistory
         (
           taskId,
+
           fromStatus,
           toStatus,
+
           changedById,
+
           note,
+
           createdAt
         )
+
         VALUES
         (
           ?,
-          ?,
+
+          'NEW',
           'IN_PROGRESS',
+
           ?,
+
           ?,
-          NOW(3)
+
+          NOW()
         )
         `,
         [
           taskId,
 
-          task.status,
-
           user.userId,
 
-          "Employee assigned and delegation started",
+          historyNote,
         ]
       );
-
-      await connection.commit();
 
       return res.json({
         success: true,
@@ -1070,8 +1261,6 @@ router.patch(
       });
 
     } catch (error) {
-
-      await connection.rollback();
 
       console.error(
         "ASSIGN TASK ERROR:",
@@ -1086,18 +1275,13 @@ router.patch(
           message:
             "Unable to assign delegation",
         });
-
-    } finally {
-
-      connection.release();
-
     }
   }
 );
 
-/* =========================================================
-   MANAGEMENT STATUS UPDATE
-========================================================= */
+/* ============================================
+   UPDATE STATUS
+============================================ */
 
 router.patch(
   "/:id/status",
@@ -1105,25 +1289,14 @@ router.patch(
     req: AuthRequest,
     res
   ) => {
-    const connection =
-      await db.getConnection();
-
     try {
       const user =
         req.user!;
 
-      /*
-        EMPLOYEE CANNOT UPDATE.
-
-        ONLY:
-        EA
-        HR
-        MD
-        ADMIN
-      */
+      /* MANAGEMENT ONLY */
 
       if (
-        !managementRoles.includes(
+        !isManagementRole(
           user.role
         )
       ) {
@@ -1133,7 +1306,7 @@ router.patch(
             success: false,
 
             message:
-              "Only EA, HR, MD or Admin can update delegation status",
+              "Employees cannot update delegation status",
           });
       }
 
@@ -1150,14 +1323,18 @@ router.patch(
       } =
         req.body;
 
-      if (!taskId) {
+      if (
+        !Number.isInteger(
+          taskId
+        )
+      ) {
         return res
           .status(400)
           .json({
             success: false,
 
             message:
-              "Invalid task ID",
+              "Invalid delegation ID",
           });
       }
 
@@ -1179,57 +1356,59 @@ router.patch(
             success: false,
 
             message:
-              "Invalid task status",
+              "Invalid status",
           });
       }
 
-      /* LOAD TASK */
+      /* GET CURRENT TASK */
 
       const [taskRows] =
-        await connection.query(
+        await db.query(
           `
           SELECT
-            t.id,
-            t.status,
-            t.responsibility,
-            t.assignedEmployeeId,
-            t.currentTargetDate,
-            t.delayCount,
-            t.targetDateUpdateCount
 
-          FROM Task t
+            id,
+
+            status,
+            responsibility,
+
+            assignedEmployeeId,
+
+            currentTargetDate,
+
+            delayCount,
+            targetDateUpdateCount,
+
+            completedAt,
+            cancelledAt
+
+          FROM Task
 
           WHERE
-            t.id = ?
+            id = ?
 
           LIMIT 1
           `,
-          [
-            taskId,
-          ]
+          [taskId]
         );
 
-      const tasks =
-        taskRows as any[];
+      const task =
+        (taskRows as any[])[0];
 
-      if (
-        tasks.length ===
-        0
-      ) {
+      if (!task) {
         return res
           .status(404)
           .json({
             success: false,
 
             message:
-              "Task not found",
+              "Delegation not found",
           });
       }
 
-      const task =
-        tasks[0];
-
-      /* CLOSED TASK */
+      /* ========================================
+         CLOSED TASK
+      ======================================== */
 
       if (
         task.status ===
@@ -1243,25 +1422,173 @@ router.patch(
             success: false,
 
             message:
-              "This delegation is already closed",
+              "Closed delegation cannot be updated",
           });
       }
 
-      /* =====================================
-         DELAY VALIDATION
-      ===================================== */
+      /* ========================================
+         NEW TASK CANNOT USE STATUS UPDATE
 
-      let parsedNewTargetDate:
-        | Date
-        | null =
-        null;
+         IT MUST FIRST BE ASSIGNED
+      ======================================== */
+
+      if (
+        task.status ===
+        "NEW"
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "NEW delegation must be assigned before it can be updated",
+          });
+      }
+
+      /* ========================================
+         EMPLOYEE MUST EXIST
+      ======================================== */
+
+      if (
+        !task.assignedEmployeeId ||
+        task.responsibility !==
+          "EMPLOYEE"
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "Delegation must be assigned to an employee before status can be updated",
+          });
+      }
+
+      /* ========================================
+         VALID CURRENT STATES
+      ======================================== */
+
+      const updateableStatuses = [
+        "IN_PROGRESS",
+        "ON_HOLD",
+        "DELAYED",
+      ];
+
+      if (
+        !updateableStatuses.includes(
+          task.status
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+
+            message:
+              "Current delegation status cannot be updated",
+          });
+      }
+
+      /* ========================================
+         PENDING / ON HOLD
+      ======================================== */
+
+      if (
+        status ===
+        "ON_HOLD"
+      ) {
+        if (
+          !note ||
+          !String(
+            note
+          ).trim()
+        ) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+
+              message:
+                "Pending reason is required",
+            });
+        }
+
+        await db.query(
+          `
+          UPDATE Task
+
+          SET
+            status = 'ON_HOLD',
+
+            updatedAt = NOW()
+
+          WHERE
+            id = ?
+          `,
+          [taskId]
+        );
+
+        await db.query(
+          `
+          INSERT INTO TaskStatusHistory
+          (
+            taskId,
+
+            fromStatus,
+            toStatus,
+
+            changedById,
+
+            note,
+
+            createdAt
+          )
+
+          VALUES
+          (
+            ?,
+            ?,
+            'ON_HOLD',
+            ?,
+            ?,
+            NOW()
+          )
+          `,
+          [
+            taskId,
+
+            task.status,
+
+            user.userId,
+
+            String(
+              note
+            ).trim(),
+          ]
+        );
+
+        return res.json({
+          success: true,
+
+          message:
+            "Delegation moved to pending successfully",
+        });
+      }
+
+      /* ========================================
+         DELAY
+      ======================================== */
 
       if (
         status ===
         "DELAYED"
       ) {
         if (
-          !delayReason?.trim()
+          !delayReason ||
+          !String(
+            delayReason
+          ).trim()
         ) {
           return res
             .status(400)
@@ -1282,14 +1609,14 @@ router.patch(
               success: false,
 
               message:
-                "New target date is required",
+                "Revised target date is required",
             });
         }
 
         if (
           Number(
             task.targetDateUpdateCount ||
-              0
+            0
           ) >= 3
         ) {
           return res
@@ -1298,19 +1625,44 @@ router.patch(
               success: false,
 
               message:
-                "Maximum 3 target date revisions are allowed",
+                "Maximum 3 target revisions are allowed",
             });
         }
 
-        parsedNewTargetDate =
-          new Date(
+        const newTarget =
+          normaliseDate(
+            newTargetDate,
+            true
+          );
+
+        if (!newTarget) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+
+              message:
+                "Invalid revised target date",
+            });
+        }
+
+        const currentTargetKey =
+          getDateKey(
+            task.currentTargetDate
+          );
+
+        const newTargetKey =
+          String(
             newTargetDate
+          ).slice(
+            0,
+            10
           );
 
         if (
-          Number.isNaN(
-            parsedNewTargetDate.getTime()
-          )
+          currentTargetKey &&
+          newTargetKey <=
+            currentTargetKey
         ) {
           return res
             .status(400)
@@ -1318,63 +1670,41 @@ router.patch(
               success: false,
 
               message:
-                "Invalid new target date",
+                "Revised target date must be later than current target date",
             });
         }
 
-        if (
-          task.currentTargetDate
-        ) {
-          const currentTarget =
-            new Date(
-              task.currentTargetDate
-            );
-
-          if (
-            parsedNewTargetDate <=
-            currentTarget
-          ) {
-            return res
-              .status(400)
-              .json({
-                success: false,
-
-                message:
-                  "New target date must be later than the current target date",
-              });
-          }
-        }
-      }
-
-      await connection.beginTransaction();
-
-      /* =====================================
-         DELAYED
-      ===================================== */
-
-      if (
-        status ===
-          "DELAYED" &&
-        parsedNewTargetDate
-      ) {
-        const delayNumber =
+        const newDelayCount =
           Number(
             task.delayCount ||
-              0
+            0
           ) + 1;
 
-        await connection.query(
+        const newRevisionCount =
+          Number(
+            task.targetDateUpdateCount ||
+            0
+          ) + 1;
+
+        /* REVISION HISTORY */
+
+        await db.query(
           `
           INSERT INTO TaskDelay
           (
             taskId,
+
             oldTargetDate,
             newTargetDate,
+
             reason,
             delayNumber,
+
             createdById,
+
             createdAt
           )
+
           VALUES
           (
             ?,
@@ -1383,7 +1713,7 @@ router.patch(
             ?,
             ?,
             ?,
-            NOW(3)
+            NOW()
           )
           `,
           [
@@ -1391,55 +1721,107 @@ router.patch(
 
             task.currentTargetDate,
 
-            parsedNewTargetDate,
+            newTarget,
 
-            delayReason.trim(),
+            String(
+              delayReason
+            ).trim(),
 
-            delayNumber,
+            newDelayCount,
 
             user.userId,
           ]
         );
 
-        await connection.query(
+        /* TASK */
+
+        await db.query(
           `
           UPDATE Task
 
           SET
-            status =
-              'DELAYED',
+            status = 'DELAYED',
 
-            currentTargetDate =
-              ?,
+            currentTargetDate = ?,
 
-            delayCount =
-              delayCount + 1,
+            delayCount = ?,
 
-            targetDateUpdateCount =
-              targetDateUpdateCount + 1,
+            targetDateUpdateCount = ?,
 
-            updatedAt =
-              NOW(3)
+            updatedAt = NOW()
 
           WHERE
             id = ?
           `,
           [
-            parsedNewTargetDate,
+            newTarget,
+
+            newDelayCount,
+
+            newRevisionCount,
+
             taskId,
           ]
         );
+
+        /* STATUS HISTORY */
+
+        await db.query(
+          `
+          INSERT INTO TaskStatusHistory
+          (
+            taskId,
+
+            fromStatus,
+            toStatus,
+
+            changedById,
+
+            note,
+
+            createdAt
+          )
+
+          VALUES
+          (
+            ?,
+            ?,
+            'DELAYED',
+            ?,
+            ?,
+            NOW()
+          )
+          `,
+          [
+            taskId,
+
+            task.status,
+
+            user.userId,
+
+            String(
+              delayReason
+            ).trim(),
+          ]
+        );
+
+        return res.json({
+          success: true,
+
+          message:
+            "Delegation delayed and target revised successfully",
+        });
       }
 
-      /* =====================================
-         COMPLETED
-      ===================================== */
+      /* ========================================
+         COMPLETE
+      ======================================== */
 
-      else if (
+      if (
         status ===
         "COMPLETED"
       ) {
-        await connection.query(
+        await db.query(
           `
           UPDATE Task
 
@@ -1448,108 +1830,185 @@ router.patch(
               'COMPLETED',
 
             completedAt =
-              NOW(3),
+              NOW(),
 
             updatedAt =
-              NOW(3)
+              NOW()
 
           WHERE
             id = ?
           `,
+          [taskId]
+        );
+
+        await db.query(
+          `
+          INSERT INTO TaskStatusHistory
+          (
+            taskId,
+
+            fromStatus,
+            toStatus,
+
+            changedById,
+
+            note,
+
+            createdAt
+          )
+
+          VALUES
+          (
+            ?,
+            ?,
+            'COMPLETED',
+            ?,
+            ?,
+            NOW()
+          )
+          `,
           [
             taskId,
+
+            task.status,
+
+            user.userId,
+
+            note &&
+            String(
+              note
+            ).trim()
+              ? String(
+                  note
+                ).trim()
+              : "Delegation completed",
           ]
         );
+
+        return res.json({
+          success: true,
+
+          message:
+            "Delegation completed successfully",
+        });
       }
 
-      /* =====================================
-         IN PROGRESS / ON HOLD
-      ===================================== */
+      /* ========================================
+         IN PROGRESS / RESUME
+      ======================================== */
 
-      else {
-        await connection.query(
+      if (
+        status ===
+        "IN_PROGRESS"
+      ) {
+        await db.query(
           `
           UPDATE Task
 
           SET
-            status = ?,
+            status =
+              'IN_PROGRESS',
 
             updatedAt =
-              NOW(3)
+              NOW()
 
           WHERE
             id = ?
           `,
-          [
-            status,
+          [taskId]
+        );
+
+        let progressNote =
+          "";
+
+        if (
+          note &&
+          String(
+            note
+          ).trim()
+        ) {
+          progressNote =
+            String(
+              note
+            ).trim();
+
+        } else if (
+          task.status ===
+          "ON_HOLD"
+        ) {
+          progressNote =
+            "Delegation resumed from pending";
+
+        } else if (
+          task.status ===
+          "DELAYED"
+        ) {
+          progressNote =
+            "Delegation resumed after delay";
+
+        } else {
+          progressNote =
+            "Progress updated";
+        }
+
+        await db.query(
+          `
+          INSERT INTO TaskStatusHistory
+          (
             taskId,
+
+            fromStatus,
+            toStatus,
+
+            changedById,
+
+            note,
+
+            createdAt
+          )
+
+          VALUES
+          (
+            ?,
+            ?,
+            'IN_PROGRESS',
+            ?,
+            ?,
+            NOW()
+          )
+          `,
+          [
+            taskId,
+
+            task.status,
+
+            user.userId,
+
+            progressNote,
           ]
         );
+
+        return res.json({
+          success: true,
+
+          message:
+            "Delegation progress updated successfully",
+        });
       }
 
-      /* =====================================
-         HISTORY
-      ===================================== */
+      return res
+        .status(400)
+        .json({
+          success: false,
 
-      await connection.query(
-        `
-        INSERT INTO TaskStatusHistory
-        (
-          taskId,
-          fromStatus,
-          toStatus,
-          changedById,
-          note,
-          createdAt
-        )
-        VALUES
-        (
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          NOW(3)
-        )
-        `,
-        [
-          taskId,
-
-          task.status,
-
-          status,
-
-          user.userId,
-
-          status ===
-          "DELAYED"
-            ? delayReason.trim()
-            : note?.trim() ||
-              null,
-        ]
-      );
-
-      await connection.commit();
-
-      return res.json({
-        success: true,
-
-        message:
-          status ===
-          "COMPLETED"
-            ? "Delegation completed successfully"
-            : status ===
-              "DELAYED"
-            ? "Delegation delay recorded successfully"
-            : "Delegation status updated successfully",
-      });
+          message:
+            "Unsupported delegation update",
+        });
 
     } catch (error) {
 
-      await connection.rollback();
-
       console.error(
-        "UPDATE TASK STATUS ERROR:",
+        "UPDATE TASK ERROR:",
         error
       );
 
@@ -1561,11 +2020,6 @@ router.patch(
           message:
             "Unable to update delegation",
         });
-
-    } finally {
-
-      connection.release();
-
     }
   }
 );
