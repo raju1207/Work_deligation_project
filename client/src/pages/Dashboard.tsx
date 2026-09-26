@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -11,43 +12,48 @@ import api from "../services/api";
 
 import "./Dashboard.css";
 
-interface TaskCounts {
-  total: number;
-  new: number;
-  inProgress: number;
-  onHold: number;
-  delayed: number;
-  completed: number;
+interface CurrentUser {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
 }
 
-interface RecentTask {
+interface Task {
   id: number;
 
   title: string;
+  description?: string;
 
   priority: string;
-
   status: string;
-
   responsibility: string;
 
+  departmentId: number;
   departmentName: string;
 
+  createdById: number;
   createdByName: string;
 
+  assignedEaId?: number;
   assignedEaName?: string;
 
+  assignedEmployeeId?: number;
   assignedEmployeeName?: string;
+  assignedEmployeeUserId?: number;
 
   startDate?: string;
 
   originalTargetDate?: string;
-
   currentTargetDate?: string;
 
-  createdAt: string;
+  delayCount: number;
+  targetDateUpdateCount: number;
 
-  updatedAt: string;
+  completedAt?: string;
+
+  createdAt: string;
+  updatedAt?: string;
 }
 
 const managementRoles = [
@@ -62,41 +68,63 @@ export default function Dashboard() {
     useNavigate();
 
   const [
-    taskCounts,
-    setTaskCounts,
-  ] =
-    useState<TaskCounts>({
-      total: 0,
-      new: 0,
-      inProgress: 0,
-      onHold: 0,
-      delayed: 0,
-      completed: 0,
-    });
-
-  const [
-    recentTasks,
-    setRecentTasks,
-  ] =
-    useState<RecentTask[]>([]);
+    tasks,
+    setTasks,
+  ] = useState<Task[]>([]);
 
   const [
     loading,
     setLoading,
-  ] =
-    useState(true);
+  ] = useState(true);
 
   const [
     error,
     setError,
-  ] =
-    useState("");
+  ] = useState("");
+
+  /* ==========================================
+     FILTERS
+  ========================================== */
+
+  const [
+    searchText,
+    setSearchText,
+  ] = useState("");
+
+  const [
+    departmentFilter,
+    setDepartmentFilter,
+  ] = useState("");
+
+  const [
+    employeeFilter,
+    setEmployeeFilter,
+  ] = useState("");
+
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState("");
+
+  const [
+    fromDate,
+    setFromDate,
+  ] = useState("");
+
+  const [
+    toDate,
+    setToDate,
+  ] = useState("");
 
   useEffect(() => {
-    loadDashboard();
+    loadData();
   }, []);
 
-  async function loadDashboard() {
+  /* ==========================================
+     LOAD DATA
+  ========================================== */
+
+  async function loadData() {
     setLoading(true);
     setError("");
 
@@ -106,13 +134,9 @@ export default function Dashboard() {
           "/auth/me"
         );
 
-      const user =
+      const user:
+        CurrentUser =
         userResponse.data.user;
-
-      /*
-        EMPLOYEE DOES NOT USE
-        MANAGEMENT DASHBOARD
-      */
 
       if (
         !managementRoles.includes(
@@ -129,19 +153,14 @@ export default function Dashboard() {
         return;
       }
 
-      const dashboardResponse =
+      const taskResponse =
         await api.get(
-          "/dashboard"
+          "/tasks"
         );
 
-      setTaskCounts(
-        dashboardResponse.data
-          .taskCounts
-      );
-
-      setRecentTasks(
-        dashboardResponse.data
-          .recentTasks || []
+      setTasks(
+        taskResponse.data.data ||
+          []
       );
 
     } catch (error: any) {
@@ -157,7 +176,7 @@ export default function Dashboard() {
       setError(
         error.response?.data
           ?.message ||
-          "Unable to load delegation dashboard"
+          "Unable to load delegations"
       );
 
     } finally {
@@ -167,7 +186,337 @@ export default function Dashboard() {
     }
   }
 
-  function formatDate(
+  /* ==========================================
+     STATUS GROUP
+  ========================================== */
+
+  function getStatusGroup(
+    status: string
+  ) {
+    if (
+      status === "ON_HOLD" ||
+      status === "DELAYED"
+    ) {
+      return "PENDING";
+    }
+
+    return status;
+  }
+
+  /* ==========================================
+     COUNTS
+  ========================================== */
+
+  const totalCount =
+    tasks.length;
+
+  const newCount =
+    tasks.filter(
+      (task) =>
+        task.status === "NEW"
+    ).length;
+
+  const inProgressCount =
+    tasks.filter(
+      (task) =>
+        task.status ===
+        "IN_PROGRESS"
+    ).length;
+
+  const pendingCount =
+    tasks.filter(
+      (task) =>
+        task.status ===
+          "ON_HOLD" ||
+        task.status ===
+          "DELAYED"
+    ).length;
+
+  /* ==========================================
+     DEPARTMENT OPTIONS
+  ========================================== */
+
+  const departments =
+    useMemo(() => {
+
+      return Array.from(
+        new Set(
+          tasks
+            .map(
+              (task) =>
+                task.departmentName
+            )
+            .filter(Boolean)
+        )
+      ).sort();
+
+    }, [tasks]);
+
+  /* ==========================================
+     EMPLOYEE OPTIONS
+  ========================================== */
+
+  const employees =
+    useMemo(() => {
+
+      return Array.from(
+        new Set(
+          tasks
+            .map(
+              (task) =>
+                task.assignedEmployeeName
+            )
+            .filter(
+              (
+                value
+              ): value is string =>
+                Boolean(value)
+            )
+        )
+      ).sort();
+
+    }, [tasks]);
+
+  /* ==========================================
+     FILTER + SORT
+  ========================================== */
+
+  const filteredTasks =
+    useMemo(() => {
+
+      const statusOrder:
+        Record<string, number> =
+      {
+        NEW: 1,
+
+        IN_PROGRESS: 2,
+
+        ON_HOLD: 3,
+
+        DELAYED: 3,
+
+        COMPLETED: 4,
+
+        CANCELLED: 5,
+      };
+
+      const search =
+        searchText
+          .trim()
+          .toLowerCase();
+
+      const filtered =
+        tasks.filter(
+          (task) => {
+
+            /* SEARCH */
+
+            if (search) {
+
+              const searchableText = [
+                task.id,
+                `#${task.id}`,
+                task.title,
+                task.departmentName,
+                task.createdByName,
+                task.assignedEaName,
+                task.assignedEmployeeName,
+                task.status,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+
+              if (
+                !searchableText.includes(
+                  search
+                )
+              ) {
+                return false;
+              }
+
+            }
+
+            /* DEPARTMENT */
+
+            if (
+              departmentFilter &&
+              task.departmentName !==
+                departmentFilter
+            ) {
+              return false;
+            }
+
+            /* EMPLOYEE */
+
+            if (
+              employeeFilter &&
+              task.assignedEmployeeName !==
+                employeeFilter
+            ) {
+              return false;
+            }
+
+            /* STATUS */
+
+            if (
+              statusFilter
+            ) {
+
+              if (
+                statusFilter ===
+                "PENDING"
+              ) {
+
+                if (
+                  getStatusGroup(
+                    task.status
+                  ) !==
+                  "PENDING"
+                ) {
+                  return false;
+                }
+
+              } else if (
+                task.status !==
+                statusFilter
+              ) {
+
+                return false;
+
+              }
+
+            }
+
+            /* FROM / TO DATE */
+
+            if (
+              fromDate ||
+              toDate
+            ) {
+
+              const created =
+                new Date(
+                  task.createdAt
+                );
+
+              if (
+                Number.isNaN(
+                  created.getTime()
+                )
+              ) {
+                return false;
+              }
+
+              if (
+                fromDate
+              ) {
+
+                const from =
+                  new Date(
+                    `${fromDate}T00:00:00`
+                  );
+
+                if (
+                  created < from
+                ) {
+                  return false;
+                }
+
+              }
+
+              if (
+                toDate
+              ) {
+
+                const to =
+                  new Date(
+                    `${toDate}T23:59:59.999`
+                  );
+
+                if (
+                  created > to
+                ) {
+                  return false;
+                }
+
+              }
+
+            }
+
+            return true;
+
+          }
+        );
+
+      return filtered.sort(
+        (a, b) => {
+
+          const aOrder =
+            statusOrder[
+              a.status
+            ] ?? 99;
+
+          const bOrder =
+            statusOrder[
+              b.status
+            ] ?? 99;
+
+          if (
+            aOrder !==
+            bOrder
+          ) {
+            return (
+              aOrder -
+              bOrder
+            );
+          }
+
+          return (
+            new Date(
+              b.createdAt
+            ).getTime() -
+            new Date(
+              a.createdAt
+            ).getTime()
+          );
+
+        }
+      );
+
+    }, [
+      tasks,
+      searchText,
+      departmentFilter,
+      employeeFilter,
+      statusFilter,
+      fromDate,
+      toDate,
+    ]);
+
+  /* ==========================================
+     CLEAR FILTERS
+  ========================================== */
+
+  function clearFilters() {
+    setSearchText("");
+
+    setDepartmentFilter("");
+
+    setEmployeeFilter("");
+
+    setStatusFilter("");
+
+    setFromDate("");
+
+    setToDate("");
+  }
+
+  /* ==========================================
+     DATE
+  ========================================== */
+
+  function formatDateOnly(
     value?: string
   ) {
     if (!value) {
@@ -185,13 +534,13 @@ export default function Dashboard() {
       return "-";
     }
 
-    return date.toLocaleString();
+    return date.toLocaleDateString();
   }
 
-  function prettyStatus(
-    value: string
+  function formatStatus(
+    status: string
   ) {
-    return value.replaceAll(
+    return status.replaceAll(
       "_",
       " "
     );
@@ -199,276 +548,507 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="main-loading">
-        Loading...
+      <div className="dashboard-loading">
+        Loading delegations...
       </div>
     );
   }
 
   return (
-    <div className="main-dashboard">
+    <div className="all-delegations-page">
 
-      <main className="main-content">
+      {/* COUNT CARDS */}
 
-        {error && (
+      <div className="delegation-stats">
 
-          <div className="dashboard-error">
-            {error}
+        <StatCard
+          label="Total"
+          value={
+            totalCount
+          }
+        />
+
+        <StatCard
+          label="New"
+          value={
+            newCount
+          }
+        />
+
+        <StatCard
+          label="In Progress"
+          value={
+            inProgressCount
+          }
+        />
+
+        <StatCard
+          label="Pending"
+          value={
+            pendingCount
+          }
+        />
+
+      </div>
+
+      {error && (
+        <div className="delegation-error">
+          {error}
+        </div>
+      )}
+
+      {/* FILTERS */}
+
+      <div className="delegation-filter-card">
+
+        <div className="delegation-filter-grid">
+
+          {/* SEARCH */}
+
+          <div className="delegation-filter-field search-field">
+
+            <label>
+              Search
+            </label>
+
+            <input
+              type="text"
+
+              value={
+                searchText
+              }
+
+              onChange={(e) =>
+                setSearchText(
+                  e.target.value
+                )
+              }
+
+              placeholder="ID, task, department, creator..."
+            />
+
           </div>
 
-        )}
+          {/* DEPARTMENT */}
 
-        {/* =====================================
-            DELEGATION OVERVIEW
-        ===================================== */}
+          <div className="delegation-filter-field">
 
-        <section>
+            <label>
+              Department
+            </label>
 
-          <div className="dashboard-section-title">
-
-            <h2>
-              Delegation Overview
-            </h2>
-
-          </div>
-
-          <div className="metric-grid task-metrics">
-
-            <MetricCard
-              label="Total"
+            <select
               value={
-                taskCounts.total
+                departmentFilter
               }
-            />
 
-            <MetricCard
-              label="New"
-              value={
-                taskCounts.new
-              }
-            />
-
-            <MetricCard
-              label="In Progress"
-              value={
-                taskCounts.inProgress
-              }
-            />
-
-            <MetricCard
-              label="Delayed"
-              value={
-                taskCounts.delayed
-              }
-            />
-
-            <MetricCard
-              label="Completed"
-              value={
-                taskCounts.completed
-              }
-            />
-
-          </div>
-
-        </section>
-
-        {/* =====================================
-            DELEGATION HISTORY
-        ===================================== */}
-
-        <section className="dashboard-panel">
-
-          <div className="dashboard-section-title">
-
-            <h2>
-              Delegation History
-            </h2>
-
-            <button
-              className="text-action-button"
-              onClick={() =>
-                navigate(
-                  "/tasks"
+              onChange={(e) =>
+                setDepartmentFilter(
+                  e.target.value
                 )
               }
             >
-              View All
+
+              <option value="">
+                All
+              </option>
+
+              {departments.map(
+                (department) => (
+
+                  <option
+                    key={
+                      department
+                    }
+
+                    value={
+                      department
+                    }
+                  >
+                    {
+                      department
+                    }
+                  </option>
+
+                )
+              )}
+
+            </select>
+
+          </div>
+
+          {/* EMPLOYEE */}
+
+          <div className="delegation-filter-field">
+
+            <label>
+              Employee
+            </label>
+
+            <select
+              value={
+                employeeFilter
+              }
+
+              onChange={(e) =>
+                setEmployeeFilter(
+                  e.target.value
+                )
+              }
+            >
+
+              <option value="">
+                All
+              </option>
+
+              {employees.map(
+                (employee) => (
+
+                  <option
+                    key={
+                      employee
+                    }
+
+                    value={
+                      employee
+                    }
+                  >
+                    {
+                      employee
+                    }
+                  </option>
+
+                )
+              )}
+
+            </select>
+
+          </div>
+
+          {/* STATUS */}
+
+          <div className="delegation-filter-field">
+
+            <label>
+              Status
+            </label>
+
+            <select
+              value={
+                statusFilter
+              }
+
+              onChange={(e) =>
+                setStatusFilter(
+                  e.target.value
+                )
+              }
+            >
+
+              <option value="">
+                All
+              </option>
+
+              <option value="NEW">
+                New
+              </option>
+
+              <option value="IN_PROGRESS">
+                In Progress
+              </option>
+
+              <option value="PENDING">
+                Pending
+              </option>
+
+              <option value="COMPLETED">
+                Completed
+              </option>
+
+              <option value="CANCELLED">
+                Cancelled
+              </option>
+
+            </select>
+
+          </div>
+
+          {/* FROM DATE */}
+
+          <div className="delegation-filter-field">
+
+            <label>
+              From Date
+            </label>
+
+            <input
+              type="date"
+
+              value={
+                fromDate
+              }
+
+              onChange={(e) =>
+                setFromDate(
+                  e.target.value
+                )
+              }
+            />
+
+          </div>
+
+          {/* TO DATE */}
+
+          <div className="delegation-filter-field">
+
+            <label>
+              To Date
+            </label>
+
+            <input
+              type="date"
+
+              value={
+                toDate
+              }
+
+              onChange={(e) =>
+                setToDate(
+                  e.target.value
+                )
+              }
+            />
+
+          </div>
+
+          {/* CLEAR */}
+
+          <div className="delegation-filter-actions">
+
+            <button
+              type="button"
+
+              onClick={
+                clearFilters
+              }
+            >
+              Clear Filters
             </button>
 
           </div>
 
-          <div className="dashboard-table-wrap">
+        </div>
 
-            <table className="dashboard-table">
+        <div className="delegation-result-count">
 
-              <thead>
+          Showing{" "}
+
+          <strong>
+            {
+              filteredTasks.length
+            }
+          </strong>
+
+          {" "}of{" "}
+
+          <strong>
+            {
+              tasks.length
+            }
+          </strong>
+
+          {" "}delegations
+
+        </div>
+
+      </div>
+
+      {/* TABLE */}
+
+      <div className="all-delegation-table-card">
+
+        <div className="all-delegation-table-wrap">
+
+          <table className="all-delegation-table">
+
+            <thead>
+
+              <tr>
+
+                <th>ID</th>
+
+                <th>
+                  Task
+                </th>
+
+                <th>
+                  Department
+                </th>
+
+                <th>
+                  Created By
+                </th>
+
+                <th>
+                  EA
+                </th>
+
+                <th>
+                  Employee
+                </th>
+
+                <th>
+                  Start Date
+                </th>
+
+                <th>
+                  Target Date
+                </th>
+
+                <th>
+                  Status
+                </th>
+
+                <th>
+                  Action
+                </th>
+
+              </tr>
+
+            </thead>
+
+            <tbody>
+
+              {filteredTasks.length ===
+              0 ? (
 
                 <tr>
 
-                  <th>
-                    ID
-                  </th>
+                  <td
+                    colSpan={10}
 
-                  <th>
-                    Task
-                  </th>
-
-                  <th>
-                    Department
-                  </th>
-
-                  <th>
-                    Created By
-                  </th>
-
-                  <th>
-                    EA
-                  </th>
-
-                  <th>
-                    Employee
-                  </th>
-
-                  <th>
-                    Status
-                  </th>
-
-                  <th>
-                    Target
-                  </th>
-
-                  <th>
-                    Action
-                  </th>
+                    className="all-delegation-empty"
+                  >
+                    No delegations match the selected filters.
+                  </td>
 
                 </tr>
 
-              </thead>
+              ) : (
 
-              <tbody>
+                filteredTasks.map(
+                  (task) => (
 
-                {recentTasks.length ===
-                0 ? (
+                    <tr
+                      key={
+                        task.id
+                      }
 
-                  <tr>
-
-                    <td
-                      colSpan={9}
-                      className="dashboard-empty"
+                      className={
+                        task.status ===
+                        "COMPLETED"
+                          ? "completed-row"
+                          : ""
+                      }
                     >
-                      No delegations
-                      found.
-                    </td>
 
-                  </tr>
+                      <td>
+                        #{task.id}
+                      </td>
 
-                ) : (
+                      <td>
+                        <strong>
+                          {
+                            task.title
+                          }
+                        </strong>
+                      </td>
 
-                  recentTasks.map(
-                    (task) => (
-
-                      <tr
-                        key={
-                          task.id
+                      <td>
+                        {
+                          task.departmentName
                         }
-                      >
+                      </td>
 
-                        <td>
-                          #{task.id}
-                        </td>
+                      <td>
+                        {
+                          task.createdByName
+                        }
+                      </td>
 
-                        <td>
+                      <td>
+                        {
+                          task.assignedEaName ||
+                          "-"
+                        }
+                      </td>
 
-                          <strong>
-                            {
-                              task.title
-                            }
-                          </strong>
+                      <td>
+                        {
+                          task.assignedEmployeeName ||
+                          "-"
+                        }
+                      </td>
 
-                        </td>
+                      <td>
+                        {formatDateOnly(
+                          task.startDate
+                        )}
+                      </td>
 
-                        <td>
-                          {
-                            task.departmentName
-                          }
-                        </td>
+                      <td>
+                        {formatDateOnly(
+                          task.currentTargetDate
+                        )}
+                      </td>
 
-                        <td>
-                          {
-                            task.createdByName
-                          }
-                        </td>
+                      <td>
 
-                        <td>
-                          {
-                            task.assignedEaName ||
-                            "-"
-                          }
-                        </td>
-
-                        <td>
-                          {
-                            task.assignedEmployeeName ||
-                            "-"
-                          }
-                        </td>
-
-                        <td>
-
-                          <span
-                            className={`dashboard-status status-${task.status.toLowerCase()}`}
-                          >
-                            {prettyStatus(
-                              task.status
-                            )}
-                          </span>
-
-                        </td>
-
-                        <td>
-                          {formatDate(
-                            task.currentTargetDate
+                        <span
+                          className={`delegation-status status-${task.status.toLowerCase()}`}
+                        >
+                          {formatStatus(
+                            task.status
                           )}
-                        </td>
+                        </span>
 
-                        <td>
+                      </td>
 
-                          <button
-                            className="view-history-button"
+                      <td>
 
-                            onClick={() =>
-                              navigate(
-                                `/tasks/${task.id}`
-                              )
-                            }
-                          >
-                            View
-                          </button>
+                        <button
+                          className="delegation-view-button"
 
-                        </td>
+                          onClick={() =>
+                            navigate(
+                              `/tasks/${task.id}`
+                            )
+                          }
+                        >
+                          View
+                        </button>
 
-                      </tr>
+                      </td>
 
-                    )
+                    </tr>
+
                   )
-                )}
+                )
+              )}
 
-              </tbody>
+            </tbody>
 
-            </table>
+          </table>
 
-          </div>
+        </div>
 
-        </section>
-
-      </main>
+      </div>
 
     </div>
   );
 }
 
-function MetricCard({
+function StatCard({
   label,
   value,
 }: {
@@ -476,7 +1056,7 @@ function MetricCard({
   value: number;
 }) {
   return (
-    <div className="metric-card">
+    <div className="delegation-stat-card">
 
       <span>
         {label}
