@@ -1,9 +1,13 @@
 import {
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
-import { useNavigate } from "react-router-dom";
+import {
+  useNavigate,
+} from "react-router-dom";
+
 import api from "../services/api";
 
 interface CurrentUser {
@@ -11,17 +15,6 @@ interface CurrentUser {
   name: string;
   email: string;
   role: string;
-}
-
-interface Department {
-  id: number;
-  name: string;
-}
-
-interface EA {
-  id: number;
-  name: string;
-  email: string;
 }
 
 interface Employee {
@@ -35,6 +28,7 @@ interface Employee {
 
 interface Task {
   id: number;
+
   title: string;
   description?: string;
 
@@ -63,8 +57,17 @@ interface Task {
   targetDateUpdateCount: number;
 
   completedAt?: string;
+
   createdAt: string;
+  updatedAt?: string;
 }
+
+const managementRoles = [
+  "ADMIN",
+  "MD",
+  "HR",
+  "EA",
+];
 
 export default function Tasks() {
   const navigate = useNavigate();
@@ -72,70 +75,30 @@ export default function Tasks() {
   const [
     currentUser,
     setCurrentUser,
-  ] =
-    useState<CurrentUser | null>(
-      null
-    );
-
-  const [tasks, setTasks] =
-    useState<Task[]>([]);
+  ] = useState<CurrentUser | null>(
+    null
+  );
 
   const [
-    departments,
-    setDepartments,
-  ] =
-    useState<Department[]>([]);
-
-  const [eas, setEas] =
-    useState<EA[]>([]);
+    tasks,
+    setTasks,
+  ] = useState<Task[]>([]);
 
   const [
     employees,
     setEmployees,
-  ] =
-    useState<Employee[]>([]);
+  ] = useState<Employee[]>([]);
 
-  /*
-    CREATE TASK
-  */
-
-  const [
-    showCreate,
-    setShowCreate,
-  ] = useState(false);
-
-  const [title, setTitle] =
-    useState("");
-
-  const [
-    description,
-    setDescription,
-  ] = useState("");
-
-  const [
-    priority,
-    setPriority,
-  ] = useState("MEDIUM");
-
-  const [
-    departmentId,
-    setDepartmentId,
-  ] = useState("");
-
-  const [
-    assignedEaId,
-    setAssignedEaId,
-  ] = useState("");
-
-  /*
-    EA ASSIGNMENT
-  */
+  /* ==========================================
+     ASSIGN EMPLOYEE
+  ========================================== */
 
   const [
     selectedTask,
     setSelectedTask,
-  ] =
-    useState<Task | null>(null);
+  ] = useState<Task | null>(
+    null
+  );
 
   const [
     employeeId,
@@ -152,21 +115,23 @@ export default function Tasks() {
     setTargetDate,
   ] = useState("");
 
-  /*
-    EMPLOYEE UPDATE
-  */
+  /* ==========================================
+     UPDATE TASK
+  ========================================== */
 
   const [
     updateTask,
     setUpdateTask,
-  ] =
-    useState<Task | null>(null);
+  ] = useState<Task | null>(
+    null
+  );
 
   const [
     newStatus,
     setNewStatus,
-  ] =
-    useState("IN_PROGRESS");
+  ] = useState(
+    "IN_PROGRESS"
+  );
 
   const [
     statusNote,
@@ -183,38 +148,143 @@ export default function Tasks() {
     setNewTargetDate,
   ] = useState("");
 
-  /*
-    COMMON
-  */
+  /* ==========================================
+     COMMON
+  ========================================== */
 
-  const [message, setMessage] =
-    useState("");
+  const [
+    message,
+    setMessage,
+  ] = useState("");
 
-  const [error, setError] =
-    useState("");
+  const [
+    error,
+    setError,
+  ] = useState("");
 
-  const [loading, setLoading] =
-    useState(false);
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
 
   useEffect(() => {
     loadData();
   }, []);
 
-  /* =====================================================
-     LOAD PAGE DATA
-  ===================================================== */
+  /* ==========================================
+     SORT ORDER
+  ========================================== */
+
+  const sortedTasks =
+    useMemo(() => {
+
+      const statusOrder:
+        Record<string, number> =
+      {
+        NEW: 1,
+
+        IN_PROGRESS: 2,
+
+        ON_HOLD: 3,
+
+        DELAYED: 3,
+
+        COMPLETED: 4,
+
+        CANCELLED: 5,
+      };
+
+      return [...tasks].sort(
+        (a, b) => {
+
+          const aOrder =
+            statusOrder[
+              a.status
+            ] ?? 99;
+
+          const bOrder =
+            statusOrder[
+              b.status
+            ] ?? 99;
+
+          if (
+            aOrder !== bOrder
+          ) {
+            return (
+              aOrder -
+              bOrder
+            );
+          }
+
+          /*
+            WITHIN SAME STATUS:
+            LATEST TASK FIRST
+          */
+
+          return (
+            new Date(
+              b.createdAt
+            ).getTime() -
+            new Date(
+              a.createdAt
+            ).getTime()
+          );
+        }
+      );
+
+    }, [tasks]);
+
+  /* ==========================================
+     COUNTS
+  ========================================== */
+
+  const newCount =
+    tasks.filter(
+      (task) =>
+        task.status ===
+        "NEW"
+    ).length;
+
+  const inProgressCount =
+    tasks.filter(
+      (task) =>
+        task.status ===
+        "IN_PROGRESS"
+    ).length;
+
+  /*
+    PENDING GROUP:
+    ON HOLD + DELAYED
+  */
+
+  const pendingCount =
+    tasks.filter(
+      (task) =>
+        task.status ===
+          "ON_HOLD" ||
+        task.status ===
+          "DELAYED"
+    ).length;
+
+  /* ==========================================
+     LOAD DATA
+  ========================================== */
 
   async function loadData() {
     setError("");
 
     try {
       const userResponse =
-        await api.get("/auth/me");
+        await api.get(
+          "/auth/me"
+        );
 
       setCurrentUser(
         userResponse.data.user
       );
+
     } catch (error: any) {
+
       if (
         error.response?.status ===
         401
@@ -227,117 +297,143 @@ export default function Tasks() {
 
     try {
       const taskResponse =
-        await api.get("/tasks");
+        await api.get(
+          "/tasks"
+        );
 
       setTasks(
-        taskResponse.data.data || []
+        taskResponse.data.data ||
+          []
       );
-    } catch (error) {
+
+    } catch (error: any) {
+
       console.error(
         "TASK LOAD ERROR:",
         error
       );
 
       setTasks([]);
-    }
 
-    try {
-      const departmentResponse =
-        await api.get(
-          "/departments"
-        );
-
-      setDepartments(
-        departmentResponse.data
-          .data || []
-      );
-    } catch (error) {
-      console.error(
-        "DEPARTMENT LOAD ERROR:",
-        error
-      );
-
-      setDepartments([]);
-    }
-
-    try {
-      const eaResponse =
-        await api.get(
-          "/users/eas"
-        );
-
-      setEas(
-        eaResponse.data.data ||
-          []
-      );
-    } catch (error) {
-      console.error(
-        "EA LOAD ERROR:",
-        error
-      );
-
-      setEas([]);
-    }
-  }
-
-  /* =====================================================
-     CREATE DELEGATION
-  ===================================================== */
-
-  async function createTask(
-    e: React.FormEvent
-  ) {
-    e.preventDefault();
-
-    setLoading(true);
-    setMessage("");
-    setError("");
-
-    try {
-      await api.post(
-        "/tasks",
-        {
-          title,
-          description,
-          priority,
-          departmentId:
-            Number(
-              departmentId
-            ),
-          assignedEaId:
-            Number(
-              assignedEaId
-            ),
-        }
-      );
-
-      setMessage(
-        "Delegation created successfully."
-      );
-
-      setTitle("");
-      setDescription("");
-      setPriority("MEDIUM");
-      setDepartmentId("");
-      setAssignedEaId("");
-
-      setShowCreate(false);
-
-      await loadData();
-    } catch (error: any) {
       setError(
         error.response?.data
           ?.message ||
-          "Unable to create delegation"
+          "Unable to load delegations"
       );
-    } finally {
-      setLoading(false);
     }
   }
 
-  /* =====================================================
-     OPEN EA ASSIGNMENT
-  ===================================================== */
+  /* ==========================================
+     ROLE CHECK
+  ========================================== */
+
+  function isManagementUser() {
+    if (!currentUser) {
+      return false;
+    }
+
+    return managementRoles.includes(
+      currentUser.role
+    );
+  }
+
+  /* ==========================================
+     EMPLOYEE VIEW
+  ========================================== */
+
+  function canEmployeeViewTask(
+    task: Task
+  ) {
+    if (
+      !currentUser ||
+      currentUser.role !==
+        "EMPLOYEE"
+    ) {
+      return false;
+    }
+
+    const createdByEmployee =
+      Number(
+        task.createdById
+      ) ===
+      Number(
+        currentUser.id
+      );
+
+    const assignedToEmployee =
+      Number(
+        task.assignedEmployeeUserId
+      ) ===
+      Number(
+        currentUser.id
+      );
+
+    return (
+      createdByEmployee ||
+      assignedToEmployee
+    );
+  }
+
+  /* ==========================================
+     ASSIGN PERMISSION
+  ========================================== */
+
+  function canAssign(
+    task: Task
+  ) {
+    if (
+      !isManagementUser()
+    ) {
+      return false;
+    }
+
+    if (
+      task.responsibility !==
+      "EA"
+    ) {
+      return false;
+    }
+
+    if (
+      task.status ===
+        "COMPLETED" ||
+      task.status ===
+        "CANCELLED"
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /* ==========================================
+     UPDATE PERMISSION
+  ========================================== */
+
+  function canUpdateTask(
+    task: Task
+  ) {
+    if (
+      !isManagementUser()
+    ) {
+      return false;
+    }
+
+    if (
+      task.status ===
+        "COMPLETED" ||
+      task.status ===
+        "CANCELLED"
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /* ==========================================
+     OPEN ASSIGN
+  ========================================== */
 
   async function openAssignTask(
     task: Task
@@ -358,9 +454,12 @@ export default function Tasks() {
         );
 
       setEmployees(
-        response.data.data || []
+        response.data.data ||
+          []
       );
+
     } catch (error: any) {
+
       setEmployees([]);
 
       setError(
@@ -371,9 +470,9 @@ export default function Tasks() {
     }
   }
 
-  /* =====================================================
+  /* ==========================================
      ASSIGN EMPLOYEE
-  ===================================================== */
+  ========================================== */
 
   async function assignEmployee(
     e: React.FormEvent
@@ -385,6 +484,7 @@ export default function Tasks() {
     }
 
     setLoading(true);
+
     setMessage("");
     setError("");
 
@@ -393,8 +493,12 @@ export default function Tasks() {
         `/tasks/${selectedTask.id}/assign`,
         {
           assignedEmployeeId:
-            Number(employeeId),
+            Number(
+              employeeId
+            ),
+
           startDate,
+
           targetDate,
         }
       );
@@ -403,50 +507,68 @@ export default function Tasks() {
         `Delegation #${selectedTask.id} assigned successfully.`
       );
 
-      setSelectedTask(null);
+      setSelectedTask(
+        null
+      );
 
       setEmployeeId("");
+
       setStartDate("");
+
       setTargetDate("");
 
       await loadData();
+
     } catch (error: any) {
+
       setError(
         error.response?.data
           ?.message ||
           "Unable to assign delegation"
       );
+
     } finally {
+
       setLoading(false);
     }
   }
 
-  /* =====================================================
-     OPEN EMPLOYEE UPDATE
-  ===================================================== */
+  /* ==========================================
+     OPEN UPDATE
+  ========================================== */
 
   function openUpdateTask(
     task: Task
   ) {
     setUpdateTask(task);
 
-    setNewStatus(
-      task.status === "DELAYED"
-        ? "IN_PROGRESS"
-        : task.status
-    );
+    if (
+      task.status ===
+      "DELAYED"
+    ) {
+      setNewStatus(
+        "IN_PROGRESS"
+      );
+    } else {
+      setNewStatus(
+        task.status
+      );
+    }
 
     setStatusNote("");
+
     setDelayReason("");
+
     setNewTargetDate("");
 
     setMessage("");
+
     setError("");
   }
 
-  /* =====================================================
-     EMPLOYEE STATUS UPDATE
-  ===================================================== */
+  /* ==========================================
+     UPDATE STATUS
+  ========================================== */
 
   async function submitTaskUpdate(
     e: React.FormEvent
@@ -458,14 +580,17 @@ export default function Tasks() {
     }
 
     setLoading(true);
+
     setMessage("");
+
     setError("");
 
     try {
       await api.patch(
         `/tasks/${updateTask.id}/status`,
         {
-          status: newStatus,
+          status:
+            newStatus,
 
           note:
             newStatus !==
@@ -491,116 +616,39 @@ export default function Tasks() {
         `Delegation #${updateTask.id} updated successfully.`
       );
 
-      setUpdateTask(null);
+      setUpdateTask(
+        null
+      );
 
       setNewStatus(
         "IN_PROGRESS"
       );
 
       setStatusNote("");
+
       setDelayReason("");
+
       setNewTargetDate("");
 
       await loadData();
+
     } catch (error: any) {
+
       setError(
         error.response?.data
           ?.message ||
           "Unable to update delegation"
       );
+
     } finally {
+
       setLoading(false);
     }
   }
 
-  /* =====================================================
-     PERMISSIONS
-  ===================================================== */
-
-  function canAssign(
-    task: Task
-  ) {
-    if (!currentUser) {
-      return false;
-    }
-
-    if (
-      task.responsibility !==
-      "EA"
-    ) {
-      return false;
-    }
-
-    if (
-      currentUser.role ===
-        "ADMIN" ||
-      currentUser.role === "MD"
-    ) {
-      return true;
-    }
-
-    if (
-      currentUser.role ===
-        "EA" &&
-      Number(
-        task.assignedEaId
-      ) ===
-        Number(currentUser.id)
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  function canUpdateTask(
-    task: Task
-  ) {
-    if (!currentUser) {
-      return false;
-    }
-
-    if (
-      task.responsibility !==
-      "EMPLOYEE"
-    ) {
-      return false;
-    }
-
-    if (
-      task.status ===
-        "COMPLETED" ||
-      task.status ===
-        "CANCELLED"
-    ) {
-      return false;
-    }
-
-    if (
-      currentUser.role ===
-        "ADMIN" ||
-      currentUser.role === "MD"
-    ) {
-      return true;
-    }
-
-    if (
-      currentUser.role ===
-        "EMPLOYEE" &&
-      Number(
-        task.assignedEmployeeUserId
-      ) ===
-        Number(currentUser.id)
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /* =====================================================
-     DATE FORMAT
-  ===================================================== */
+  /* ==========================================
+     DATE
+  ========================================== */
 
   function formatDate(
     value?: string
@@ -609,9 +657,8 @@ export default function Tasks() {
       return "-";
     }
 
-    const date = new Date(
-      value
-    );
+    const date =
+      new Date(value);
 
     if (
       Number.isNaN(
@@ -624,104 +671,48 @@ export default function Tasks() {
     return date.toLocaleString();
   }
 
-  /* =====================================================
-     UI
-  ===================================================== */
+  /* ==========================================
+     PAGE
+  ========================================== */
 
   return (
     <div className="tasks-page">
 
-      {/* TOP BAR */}
-
-      <div className="tasks-topbar">
-
-        <div>
-          <h1>
-            Task Management
-          </h1>
-
-          <p>
-            Delegation &
-            responsibility tracking
-          </p>
-        </div>
-
-        <div className="tasks-actions">
-
-          <button
-            className="back-button"
-            onClick={() =>
-              navigate(
-                "/dashboard"
-              )
-            }
-          >
-            Dashboard
-          </button>
-
-          <button
-            className="primary-button"
-            onClick={() => {
-              setShowCreate(
-                !showCreate
-              );
-
-              setMessage("");
-              setError("");
-            }}
-          >
-            + New Delegation
-          </button>
-
-        </div>
-
-      </div>
-
-      {/* STATS */}
+      {/* COUNTS */}
 
       <div className="task-stats">
 
         <Stat
           label="Total"
-          value={tasks.length}
+          value={
+            tasks.length
+          }
         />
 
         <Stat
           label="New"
           value={
-            tasks.filter(
-              (task) =>
-                task.status ===
-                "NEW"
-            ).length
+            newCount
           }
         />
 
         <Stat
           label="In Progress"
           value={
-            tasks.filter(
-              (task) =>
-                task.status ===
-                "IN_PROGRESS"
-            ).length
+            inProgressCount
           }
         />
 
         <Stat
-          label="Delayed"
+          label="Pending"
           value={
-            tasks.filter(
-              (task) =>
-                task.status ===
-                "DELAYED"
-            ).length
+            pendingCount
           }
         />
 
       </div>
 
-      {/* SUCCESS MESSAGE */}
+      {/* MESSAGE */}
 
       {message && (
         <div className="task-message">
@@ -729,206 +720,10 @@ export default function Tasks() {
         </div>
       )}
 
-      {/* ERROR */}
-
       {error && (
         <div className="task-error">
           {error}
         </div>
-      )}
-
-      {/* CREATE TASK */}
-
-      {showCreate && (
-        <form
-          className="create-task-card"
-          onSubmit={createTask}
-        >
-
-          <h2>
-            Create New Delegation
-          </h2>
-
-          <div className="task-form-grid">
-
-            <div className="form-group">
-
-              <label>
-                Task Title *
-              </label>
-
-              <input
-                value={title}
-                onChange={(e) =>
-                  setTitle(
-                    e.target.value
-                  )
-                }
-                required
-              />
-
-            </div>
-
-            <div className="form-group">
-
-              <label>
-                Department *
-              </label>
-
-              <select
-                value={
-                  departmentId
-                }
-                onChange={(e) =>
-                  setDepartmentId(
-                    e.target.value
-                  )
-                }
-                required
-              >
-
-                <option value="">
-                  Select Department
-                </option>
-
-                {departments.map(
-                  (department) => (
-                    <option
-                      key={
-                        department.id
-                      }
-                      value={
-                        department.id
-                      }
-                    >
-                      {
-                        department.name
-                      }
-                    </option>
-                  )
-                )}
-
-              </select>
-
-            </div>
-
-            <div className="form-group">
-
-              <label>
-                Priority *
-              </label>
-
-              <select
-                value={priority}
-                onChange={(e) =>
-                  setPriority(
-                    e.target.value
-                  )
-                }
-              >
-
-                <option value="HIGH">
-                  High
-                </option>
-
-                <option value="MEDIUM">
-                  Medium
-                </option>
-
-                <option value="LOW">
-                  Low
-                </option>
-
-              </select>
-
-            </div>
-
-            <div className="form-group">
-
-              <label>
-                Assign EA *
-              </label>
-
-              <select
-                value={
-                  assignedEaId
-                }
-                onChange={(e) =>
-                  setAssignedEaId(
-                    e.target.value
-                  )
-                }
-                required
-              >
-
-                <option value="">
-                  Select EA
-                </option>
-
-                {eas.map(
-                  (ea) => (
-                    <option
-                      key={ea.id}
-                      value={ea.id}
-                    >
-                      {ea.name}
-                    </option>
-                  )
-                )}
-
-              </select>
-
-            </div>
-
-            <div className="form-group full-width">
-
-              <label>
-                Description
-              </label>
-
-              <textarea
-                rows={4}
-                value={
-                  description
-                }
-                onChange={(e) =>
-                  setDescription(
-                    e.target.value
-                  )
-                }
-              />
-
-            </div>
-
-          </div>
-
-          <div className="task-form-actions">
-
-            <button
-              type="button"
-              className="back-button"
-              onClick={() =>
-                setShowCreate(
-                  false
-                )
-              }
-            >
-              Cancel
-            </button>
-
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={loading}
-            >
-              {loading
-                ? "Creating..."
-                : "Create Delegation"}
-            </button>
-
-          </div>
-
-        </form>
       )}
 
       {/* TASK TABLE */}
@@ -940,26 +735,56 @@ export default function Tasks() {
           <thead>
 
             <tr>
+
               <th>ID</th>
+
               <th>Task</th>
-              <th>Department</th>
-              <th>Priority</th>
+
+              <th>
+                Department
+              </th>
+
+              <th>
+                Priority
+              </th>
+
               <th>EA</th>
-              <th>Employee</th>
-              <th>Target</th>
-              <th>Responsibility</th>
-              <th>Status</th>
-              <th>Created By</th>
-              <th>Action</th>
+
+              <th>
+                Employee
+              </th>
+
+              <th>
+                Target
+              </th>
+
+              <th>
+                Responsibility
+              </th>
+
+              <th>
+                Status
+              </th>
+
+              <th>
+                Created By
+              </th>
+
+              <th>
+                Action
+              </th>
+
             </tr>
 
           </thead>
 
           <tbody>
 
-            {tasks.length === 0 ? (
+            {sortedTasks.length ===
+            0 ? (
 
               <tr>
+
                 <td
                   colSpan={11}
                   className="empty-table"
@@ -967,15 +792,18 @@ export default function Tasks() {
                   No delegations
                   found.
                 </td>
+
               </tr>
 
             ) : (
 
-              tasks.map(
+              sortedTasks.map(
                 (task) => (
 
                   <tr
-                    key={task.id}
+                    key={
+                      task.id
+                    }
                   >
 
                     <td>
@@ -983,9 +811,13 @@ export default function Tasks() {
                     </td>
 
                     <td>
+
                       <strong>
-                        {task.title}
+                        {
+                          task.title
+                        }
                       </strong>
+
                     </td>
 
                     <td>
@@ -995,17 +827,23 @@ export default function Tasks() {
                     </td>
 
                     <td>
-                      {task.priority}
+                      {
+                        task.priority
+                      }
                     </td>
 
                     <td>
-                      {task.assignedEaName ||
-                        "-"}
+                      {
+                        task.assignedEaName ||
+                        "-"
+                      }
                     </td>
 
                     <td>
-                      {task.assignedEmployeeName ||
-                        "-"}
+                      {
+                        task.assignedEmployeeName ||
+                        "-"
+                      }
                     </td>
 
                     <td>
@@ -1025,10 +863,12 @@ export default function Tasks() {
                       <span
                         className={`status-pill status-${task.status.toLowerCase()}`}
                       >
+
                         {task.status.replaceAll(
                           "_",
                           " "
                         )}
+
                       </span>
 
                     </td>
@@ -1041,39 +881,104 @@ export default function Tasks() {
 
                     <td>
 
-                      {canAssign(
-                        task
-                      ) ? (
+                      <div
+                        style={{
+                          display:
+                            "flex",
 
-                        <button
-                          className="assign-button"
-                          onClick={() =>
-                            openAssignTask(
-                              task
-                            )
-                          }
-                        >
-                          Assign
-                        </button>
+                          gap: "6px",
 
-                      ) : canUpdateTask(
+                          flexWrap:
+                            "wrap",
+
+                          alignItems:
+                            "center",
+                        }}
+                      >
+
+                        {/* EMPLOYEE VIEW */}
+
+                        {canEmployeeViewTask(
                           task
-                        ) ? (
+                        ) && (
 
-                        <button
-                          className="update-task-button"
-                          onClick={() =>
-                            openUpdateTask(
-                              task
-                            )
-                          }
-                        >
-                          Update
-                        </button>
+                          <button
+                            className="back-button"
 
-                      ) : (
-                        "-"
-                      )}
+                            style={{
+                              padding:
+                                "7px 12px",
+
+                              fontSize:
+                                "12px",
+                            }}
+
+                            onClick={() =>
+                              navigate(
+                                `/tasks/${task.id}`
+                              )
+                            }
+                          >
+                            View
+                          </button>
+
+                        )}
+
+                        {/* MANAGEMENT ASSIGN */}
+
+                        {canAssign(
+                          task
+                        ) && (
+
+                          <button
+                            className="assign-button"
+
+                            onClick={() =>
+                              openAssignTask(
+                                task
+                              )
+                            }
+                          >
+                            Assign
+                          </button>
+
+                        )}
+
+                        {/* MANAGEMENT UPDATE */}
+
+                        {canUpdateTask(
+                          task
+                        ) && (
+
+                          <button
+                            className="update-task-button"
+
+                            onClick={() =>
+                              openUpdateTask(
+                                task
+                              )
+                            }
+                          >
+                            Update
+                          </button>
+
+                        )}
+
+                        {!canEmployeeViewTask(
+                          task
+                        ) &&
+                          !canAssign(
+                            task
+                          ) &&
+                          !canUpdateTask(
+                            task
+                          ) && (
+                            <span>
+                              -
+                            </span>
+                          )}
+
+                      </div>
 
                     </td>
 
@@ -1089,9 +994,9 @@ export default function Tasks() {
 
       </div>
 
-      {/* ===============================================
-          EA ASSIGN EMPLOYEE MODAL
-      =============================================== */}
+      {/* ======================================
+          ASSIGN MODAL
+      ====================================== */}
 
       {selectedTask && (
 
@@ -1110,9 +1015,7 @@ export default function Tasks() {
                 <p>
                   #{selectedTask.id}
                   {" — "}
-                  {
-                    selectedTask.title
-                  }
+                  {selectedTask.title}
                 </p>
 
               </div>
@@ -1120,6 +1023,7 @@ export default function Tasks() {
               <button
                 type="button"
                 className="modal-close"
+
                 onClick={() =>
                   setSelectedTask(
                     null
@@ -1134,6 +1038,7 @@ export default function Tasks() {
             <div className="assignment-info">
 
               <div>
+
                 <span>
                   Department
                 </span>
@@ -1143,9 +1048,11 @@ export default function Tasks() {
                     selectedTask.departmentName
                   }
                 </strong>
+
               </div>
 
               <div>
+
                 <span>
                   Priority
                 </span>
@@ -1155,9 +1062,11 @@ export default function Tasks() {
                     selectedTask.priority
                   }
                 </strong>
+
               </div>
 
               <div>
+
                 <span>
                   Responsibility
                 </span>
@@ -1167,6 +1076,7 @@ export default function Tasks() {
                     selectedTask.responsibility
                   }
                 </strong>
+
               </div>
 
             </div>
@@ -1187,11 +1097,13 @@ export default function Tasks() {
                   value={
                     employeeId
                   }
+
                   onChange={(e) =>
                     setEmployeeId(
                       e.target.value
                     )
                   }
+
                   required
                 >
 
@@ -1206,10 +1118,12 @@ export default function Tasks() {
                         key={
                           employee.id
                         }
+
                         value={
                           employee.id
                         }
                       >
+
                         {
                           employee.fullName
                         }
@@ -1217,6 +1131,7 @@ export default function Tasks() {
                         {employee.employeeCode
                           ? ` (${employee.employeeCode})`
                           : ""}
+
                       </option>
 
                     )
@@ -1226,12 +1141,15 @@ export default function Tasks() {
 
                 {employees.length ===
                   0 && (
+
                   <small className="field-warning">
-                    No active
-                    employee found
-                    for this
+
+                    No active employee
+                    found for this
                     department.
+
                   </small>
+
                 )}
 
               </div>
@@ -1239,20 +1157,22 @@ export default function Tasks() {
               <div className="form-group">
 
                 <label>
-                  Start Date &
-                  Time *
+                  Start Date & Time *
                 </label>
 
                 <input
                   type="datetime-local"
+
                   value={
                     startDate
                   }
+
                   onChange={(e) =>
                     setStartDate(
                       e.target.value
                     )
                   }
+
                   required
                 />
 
@@ -1261,20 +1181,22 @@ export default function Tasks() {
               <div className="form-group">
 
                 <label>
-                  Target Date &
-                  Time *
+                  Target Date & Time *
                 </label>
 
                 <input
                   type="datetime-local"
+
                   value={
                     targetDate
                   }
+
                   onChange={(e) =>
                     setTargetDate(
                       e.target.value
                     )
                   }
+
                   required
                 />
 
@@ -1303,6 +1225,7 @@ export default function Tasks() {
                 <button
                   type="button"
                   className="back-button"
+
                   onClick={() =>
                     setSelectedTask(
                       null
@@ -1315,15 +1238,18 @@ export default function Tasks() {
                 <button
                   type="submit"
                   className="primary-button"
+
                   disabled={
                     loading ||
                     employees.length ===
                       0
                   }
                 >
+
                   {loading
                     ? "Assigning..."
                     : "Assign & Start"}
+
                 </button>
 
               </div>
@@ -1336,9 +1262,9 @@ export default function Tasks() {
 
       )}
 
-      {/* ===============================================
-          EMPLOYEE UPDATE MODAL
-      =============================================== */}
+      {/* ======================================
+          UPDATE MODAL
+      ====================================== */}
 
       {updateTask && (
 
@@ -1357,9 +1283,7 @@ export default function Tasks() {
                 <p>
                   #{updateTask.id}
                   {" — "}
-                  {
-                    updateTask.title
-                  }
+                  {updateTask.title}
                 </p>
 
               </div>
@@ -1367,6 +1291,7 @@ export default function Tasks() {
               <button
                 type="button"
                 className="modal-close"
+
                 onClick={() =>
                   setUpdateTask(
                     null
@@ -1416,8 +1341,10 @@ export default function Tasks() {
                 </span>
 
                 <strong>
-                  {updateTask.delayCount ||
-                    0}
+                  {
+                    updateTask.delayCount ||
+                    0
+                  }
                 </strong>
 
               </div>
@@ -1440,11 +1367,13 @@ export default function Tasks() {
                   value={
                     newStatus
                   }
+
                   onChange={(e) =>
                     setNewStatus(
                       e.target.value
                     )
                   }
+
                   required
                 >
 
@@ -1453,7 +1382,7 @@ export default function Tasks() {
                   </option>
 
                   <option value="ON_HOLD">
-                    On Hold
+                    Pending / On Hold
                   </option>
 
                   <option value="DELAYED">
@@ -1468,21 +1397,23 @@ export default function Tasks() {
 
               </div>
 
-              {/* DELAY */}
-
               {newStatus ===
                 "DELAYED" && (
                 <>
 
                   <div className="delay-warning">
 
-                    Target date
-                    revisions used:{" "}
+                    Target date revisions used:{" "}
 
                     <strong>
-                      {updateTask.targetDateUpdateCount ||
-                        0}
+
+                      {
+                        updateTask.targetDateUpdateCount ||
+                        0
+                      }
+
                       {" / 3"}
+
                     </strong>
 
                   </div>
@@ -1495,15 +1426,19 @@ export default function Tasks() {
 
                     <textarea
                       rows={3}
+
                       value={
                         delayReason
                       }
+
                       onChange={(e) =>
                         setDelayReason(
                           e.target.value
                         )
                       }
+
                       placeholder="Enter reason for delay"
+
                       required
                     />
 
@@ -1512,20 +1447,22 @@ export default function Tasks() {
                   <div className="form-group">
 
                     <label>
-                      New Target
-                      Date & Time *
+                      New Target Date & Time *
                     </label>
 
                     <input
                       type="datetime-local"
+
                       value={
                         newTargetDate
                       }
+
                       onChange={(e) =>
                         setNewTargetDate(
                           e.target.value
                         )
                       }
+
                       required
                     />
 
@@ -1534,10 +1471,9 @@ export default function Tasks() {
                 </>
               )}
 
-              {/* NORMAL NOTE */}
-
               {newStatus !==
                 "DELAYED" && (
+
                 <div className="form-group">
 
                   <label>
@@ -1546,31 +1482,34 @@ export default function Tasks() {
 
                   <textarea
                     rows={3}
+
                     value={
                       statusNote
                     }
+
                     onChange={(e) =>
                       setStatusNote(
                         e.target.value
                       )
                     }
+
                     placeholder="Enter remarks"
                   />
 
                 </div>
-              )}
 
-              {/* COMPLETE WARNING */}
+              )}
 
               {newStatus ===
                 "COMPLETED" && (
+
                 <div className="completion-warning">
-                  This will mark
-                  the delegation as
-                  completed. After
-                  completion it cannot
-                  be updated.
+
+                  This will mark the
+                  delegation as completed.
+
                 </div>
+
               )}
 
               <div className="task-form-actions">
@@ -1578,6 +1517,7 @@ export default function Tasks() {
                 <button
                   type="button"
                   className="back-button"
+
                   onClick={() =>
                     setUpdateTask(
                       null
@@ -1590,6 +1530,7 @@ export default function Tasks() {
                 <button
                   type="submit"
                   className="primary-button"
+
                   disabled={
                     loading ||
                     (
@@ -1602,9 +1543,11 @@ export default function Tasks() {
                     )
                   }
                 >
+
                   {loading
                     ? "Updating..."
                     : "Update Delegation"}
+
                 </button>
 
               </div>
@@ -1620,10 +1563,6 @@ export default function Tasks() {
     </div>
   );
 }
-
-/* =========================================================
-   STAT CARD
-========================================================= */
 
 function Stat({
   label,

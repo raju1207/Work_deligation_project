@@ -10,6 +10,7 @@ datasource db {
 enum UserRole {
   ADMIN
   MD
+  HR
   EA
   DEPARTMENT_HOD
   PROCESS
@@ -73,11 +74,11 @@ model User {
 }
 
 model Employee {
-  id            Int     @id @default(autoincrement())
-  employeeCode  String? @unique
+  id            Int      @id @default(autoincrement())
+  employeeCode  String?  @unique
   fullName      String
-  officialEmail String? @unique
-  isActive      Boolean @default(true)
+  officialEmail String?  @unique
+  isActive      Boolean  @default(true)
 
   departmentId Int?
   department   Department? @relation(fields: [departmentId], references: [id])

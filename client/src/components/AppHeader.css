@@ -1,0 +1,204 @@
+.app-fixed-header {
+  position: fixed;
+
+  top: 0;
+  left: 0;
+  right: 0;
+
+  height: 82px;
+
+  z-index: 2000;
+
+  background: #0f5a36;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 0 28px;
+
+  color: white;
+
+  box-shadow:
+    0 2px 8px
+    rgba(0, 0, 0, 0.14);
+}
+
+/* =====================================
+   BRAND
+===================================== */
+
+.app-header-brand {
+  display: flex;
+
+  align-items: center;
+
+  gap: 13px;
+
+  cursor: pointer;
+}
+
+.app-header-logo {
+  width: 56px;
+  height: 56px;
+
+  background: white;
+
+  border-radius: 8px;
+
+  padding: 4px;
+
+  overflow: hidden;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-header-logo img {
+  width: 100%;
+  height: 100%;
+
+  object-fit: contain;
+
+  display: block;
+}
+
+.app-header-brand-text {
+  display: flex;
+
+  flex-direction: column;
+}
+
+.app-header-brand-text strong {
+  font-size: 17px;
+
+  font-weight: 700;
+
+  line-height: 1.2;
+}
+
+.app-header-brand-text span {
+  font-size: 10px;
+
+  opacity: 0.85;
+
+  margin-top: 3px;
+}
+
+/* =====================================
+   USER
+===================================== */
+
+.app-header-user {
+  display: flex;
+
+  align-items: center;
+
+  gap: 16px;
+}
+
+.app-header-user > div {
+  display: flex;
+
+  flex-direction: column;
+
+  text-align: right;
+}
+
+.app-header-user strong {
+  font-size: 14px;
+
+  font-weight: 700;
+}
+
+.app-header-user span {
+  font-size: 10px;
+
+  opacity: 0.8;
+
+  text-transform: uppercase;
+
+  margin-top: 2px;
+}
+
+.header-logout {
+  background: transparent;
+
+  border:
+    1px solid
+    rgba(255, 255, 255, 0.55);
+
+  color: white;
+
+  padding: 10px 17px;
+
+  border-radius: 6px;
+
+  cursor: pointer;
+
+  font-size: 13px;
+
+  font-weight: 600;
+}
+
+.header-logout:hover {
+  background:
+    rgba(
+      255,
+      255,
+      255,
+      0.1
+    );
+}
+
+/* =====================================
+   CONTENT BELOW FIXED HEADER + NAV
+===================================== */
+
+.app-layout-content {
+  padding-top: 150px;
+
+  min-height: 100vh;
+}
+
+/* =====================================
+   MOBILE
+===================================== */
+
+@media (max-width: 650px) {
+
+  .app-fixed-header {
+    height: 72px;
+
+    padding: 0 12px;
+  }
+
+  .app-header-logo {
+    width: 48px;
+    height: 48px;
+  }
+
+  .app-header-brand-text strong {
+    font-size: 14px;
+  }
+
+  .app-header-brand-text span {
+    font-size: 8px;
+  }
+
+  .app-header-user > div {
+    display: none;
+  }
+
+  .header-logout {
+    padding: 8px 11px;
+
+    font-size: 11px;
+  }
+
+  .app-layout-content {
+    padding-top: 134px;
+  }
+
+}

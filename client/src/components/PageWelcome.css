@@ -1,0 +1,41 @@
+.page-welcome {
+  width: 100%;
+
+  background: #f4f7f5;
+}
+
+.page-welcome-inner {
+  width: 100%;
+
+  max-width: 1280px;
+
+  margin: 0 auto;
+
+  padding:
+    26px 22px
+    10px;
+}
+
+.page-welcome h1 {
+  margin: 0;
+
+  color: #153f2d;
+
+  font-size: 28px;
+
+  font-weight: 700;
+}
+
+@media (max-width: 650px) {
+
+  .page-welcome-inner {
+    padding:
+      20px 14px
+      8px;
+  }
+
+  .page-welcome h1 {
+    font-size: 22px;
+  }
+
+}

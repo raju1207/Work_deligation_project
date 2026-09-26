@@ -4,95 +4,205 @@ import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 
 import { db } from "./lib/db.js";
+
 import authRouter from "./routes/auth.js";
 import taskRouter from "./routes/tasks.js";
 import userRouter from "./routes/users.js";
 import employeeRouter from "./routes/employees.js";
+import dashboardRouter from "./routes/dashboard.js";
+
+import {
+  requireAuth,
+} from "./middleware/auth.js";
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+
+const PORT =
+  process.env.PORT || 5000;
+
+/* ==========================================
+   MIDDLEWARE
+========================================== */
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin:
+      "http://localhost:5173",
+
     credentials: true,
   })
 );
 
 app.use(cookieParser());
+
 app.use(express.json());
 
-app.use("/api/auth", authRouter);
-app.use("/api/tasks", taskRouter);
-app.use("/api/users", userRouter);
-app.use("/api/employees", employeeRouter);
+/* ==========================================
+   API ROUTES
+========================================== */
+
+app.use(
+  "/api/auth",
+  authRouter
+);
+
+app.use(
+  "/api/tasks",
+  taskRouter
+);
+
+app.use(
+  "/api/users",
+  userRouter
+);
+
+app.use(
+  "/api/employees",
+  employeeRouter
+);
+
+app.use(
+  "/api/dashboard",
+  dashboardRouter
+);
+
+/* ==========================================
+   DEPARTMENTS
+========================================== */
+
+app.get(
+  "/api/departments",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const [rows] =
+        await db.query(`
+          SELECT
+            id,
+            name
+          FROM Department
+          WHERE isActive = true
+          ORDER BY name
+        `);
+
+      return res.json({
+        success: true,
+        data: rows,
+      });
+    } catch (error) {
+      console.error(
+        "GET DEPARTMENTS ERROR:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          message:
+            "Unable to load departments",
+        });
+    }
+  }
+);
+
+/* ==========================================
+   ROOT
+========================================== */
 
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    message: "Prorich Delegation API is running",
+
+    message:
+      "Prorich Delegation Management API is running",
   });
 });
 
-app.get("/api/health", (req, res) => {
-  res.json({
-    success: true,
-    status: "OK",
-    application: "Prorich Delegation Management",
-    timestamp: new Date().toISOString(),
-  });
-});
+/* ==========================================
+   HEALTH
+========================================== */
 
-app.get("/api/db-health", async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      "SELECT COUNT(*) AS departmentCount FROM Department"
-    );
-
-    const result = rows as Array<{ departmentCount: number }>;
-
+app.get(
+  "/api/health",
+  (req, res) => {
     res.json({
       success: true,
-      database: "CONNECTED",
-      departmentCount: result[0]?.departmentCount ?? 0,
-    });
-  } catch (error) {
-    console.error("DATABASE ERROR:", error);
 
-    res.status(500).json({
-      success: false,
-      database: "ERROR",
-    });
-  }
-});
+      status: "OK",
 
-app.get("/api/departments", async (req, res) => {
-  try {
-    const [rows] = await db.query(`
-      SELECT
-        id,
-        name
-      FROM Department
-      WHERE isActive = true
-      ORDER BY name
-    `);
+      application:
+        "Prorich Delegation Management",
 
-    return res.json({
-      success: true,
-      data: rows,
-    });
-  } catch (error) {
-    console.error("GET DEPARTMENTS ERROR:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to load departments",
+      timestamp:
+        new Date().toISOString(),
     });
   }
-});
+);
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+/* ==========================================
+   DATABASE HEALTH
+========================================== */
+
+app.get(
+  "/api/db-health",
+  async (req, res) => {
+    try {
+      const [rows] =
+        await db.query(
+          `
+          SELECT
+            COUNT(*) AS departmentCount
+          FROM Department
+          `
+        );
+
+      const result =
+        rows as Array<{
+          departmentCount: number;
+        }>;
+
+      return res.json({
+        success: true,
+
+        database:
+          "CONNECTED",
+
+        departmentCount:
+          result[0]
+            ?.departmentCount ??
+          0,
+      });
+    } catch (error) {
+      console.error(
+        "DATABASE ERROR:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          database:
+            "ERROR",
+        });
+    }
+  }
+);
+
+/* ==========================================
+   START SERVER
+========================================== */
+
+app.listen(
+  PORT,
+  () => {
+    console.log(
+      `Server running on http://localhost:${PORT}`
+    );
+  }
+);
